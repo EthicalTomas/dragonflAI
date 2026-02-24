@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Env
+.env
+
+# Streamlit
+.streamlit/
+
+# Artifacts
+artifacts/
+
+# Node (if added later)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Alembic
+migrations/versions/__pycache__/
