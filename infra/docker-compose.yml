@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dragonflai-postgres
+    environment:
+      POSTGRES_DB: dragonflai
+      POSTGRES_USER: dragonflai
+      POSTGRES_PASSWORD: dragonflai_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - dragonflai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragonflai -d dragonflai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: dragonflai-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - dragonflai_redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  dragonflai_pgdata:
+  dragonflai_redis:
