@@ -241,7 +241,43 @@ def batch_report(body: _BatchReportRequest, db: Session = Depends(get_db)):
     if template not in _VALID_TEMPLATES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid template. Must be one of: {', '.join(sorted(_VALID_TEMPLATES))}",
+            detail=f"Invalid template. Must be one of: {', '.join(sorted(_VALID_TEMPL## Task
+Write the file `ui/pages/8_Reports.py` for the dragonflAI project.
+
+## Requirements
+- Streamlit page dedicated to viewing and exporting generated reports.
+
+**Section 1: Single Report Viewer**
+- Number input for finding ID.
+- "Load Report" button.
+- If the finding has a `report_markdown`:
+  - Display it as rendered Markdown using `st.markdown()`.
+  - Show a "View Raw Markdown" toggle that shows the raw text in a code block.
+  - Download buttons: Markdown (.md), Plain Text (.txt).
+- If no report exists, show a warning: "No report generated yet. Go to the Findings page to generate one."
+
+**Section 2: Batch Report Dashboard**
+- Fetch all findings with `GET /findings`.
+- Show summary statistics:
+  - Total findings by severity (use `st.metric()` widgets in columns).
+  - Total findings by status.
+- "Generate Full Assessment Report" button:
+  - Sends all finding IDs to `POST /findings/batch-report`.
+  - Displays the combined report.
+  - Download button for the combined report.
+
+**Section 3: Report History**
+- List all findings that have `report_markdown` not empty.
+- Display as a table: ID, Title, Severity, Template used, Generated date.
+- Click to view any report.
+
+## Reminders
+- Use `st.columns()` for the severity metrics dashboard.
+- Use `st.tabs()` to separate the three sections.
+- Wrap API calls in try/except.
+- For downloads, use `st.download_button(data=report_bytes, file_name=..., mime=...)`.
+- No print statements.
+- Output ONLY the file content, no explanation.ATES))}",
         )
 
     findings = db.query(Finding).filter(Finding.id.in_(finding_ids)).all()
