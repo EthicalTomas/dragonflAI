@@ -1,11 +1,4 @@
-"""
-Detection Orchestrator — drives the heuristic engine over stored endpoint and asset data.
-
-No network calls are made; all analysis is performed on data already in the database.
-"""
-
-from __future__ import annotations
-
+import json
 import logging
 from collections import defaultdict
 
@@ -13,134 +6,239 @@ from sqlalchemy.orm import Session
 
 from backend.app.detection.heuristics import HeuristicEngine
 from backend.app.detection.patterns import PatternMatcher
-from backend.app.models import Asset, Endpoint, Finding, FindingStatus
+from backend.app.models.asset import Asset
+from backend.app.models.endpoint import Endpoint
+from backend.app.models.finding import Finding
 
 logger = logging.getLogger(__name__)
 
-_CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
-_MAX_INTERESTING_REASONS = 3
-_SEVERITY_MAP: dict[str, str] = {
-    "critical": "critical",
-    "high": "high",
-    "medium": "medium",
-    "low": "low",
-    "info": "low",
+_IMPACT_MAP: dict[str, str] = {
+    "rce": "Remote code execution could allow an attacker to fully compromise the server.",
+    "ssti": "Server-side template injection may lead to remote code execution.",
+    "sqli": "SQL injection could expose or corrupt database contents.",
+    "lfi": "Local file inclusion may expose sensitive server files.",
+    "ssrf": "Server-side request forgery could allow access to internal services.",
+    "xss": "Cross-site scripting could allow session hijacking and data theft.",
+    "open_redirect": "Open redirect can be used in phishing attacks.",
+    "idor": "Insecure direct object reference may expose other users' data.",
+    "admin_panel": "Exposed admin panel increases the attack surface significantly.",
+    "no_https": "Lack of HTTPS exposes data in transit to interception.",
+    "sensitive_path": "Sensitive path exposure may reveal internal functionality or data.",
+    "tech_disclosure": "Technology disclosure aids attackers in targeting known vulnerabilities.",
+    "debug_enabled": "Debug mode enabled in production can expose sensitive information.",
+    "cors_wildcard": "Wildcard CORS policy may allow cross-origin data leakage.",
+    "missing_security_header": (
+        "Missing security headers reduce defense-in-depth and browser protections."
+    ),
 }
 
 
 class DetectionOrchestrator:
-    """Orchestrates heuristic detection over stored endpoints and assets."""
-
     def __init__(self, db: Session) -> None:
         self.db = db
-        self._engine = HeuristicEngine(PatternMatcher())
+        self._pattern_matcher = PatternMatcher()
+        self._heuristic_engine = HeuristicEngine()
 
     # ------------------------------------------------------------------
-    # Public API
+    # public API
     # ------------------------------------------------------------------
 
     def run_detection(self, target_id: int, run_id: int | None = None) -> dict:
-        """Analyze all endpoints and assets for *target_id* and return a report dict.
+        """Run heuristic detection for *target_id*, optionally scoped to *run_id*.
 
-        Flags interesting endpoints in the database when signals are found.
-        No external network calls are made — analysis is read-only on stored data.
+        Does **not** commit — the caller is responsible for committing.
         """
-        endpoints = self.db.query(Endpoint).filter(Endpoint.target_id == target_id).all()
-        assets = self.db.query(Asset).filter(Asset.target_id == target_id).all()
+        # Load assets
+        asset_query = self.db.query(Asset).filter(Asset.target_id == target_id)
+        if run_id is not None:
+            asset_query = asset_query.filter(Asset.run_id == run_id)
+        assets: list[Asset] = asset_query.all()
 
-        signals = self._engine.analyze_batch(endpoints, assets)
-
-        # Collect reasons per endpoint/asset so we can update the is_interesting flag
-        ep_reasons: dict[int, list[str]] = defaultdict(list)
-        asset_reasons: dict[int, list[str]] = defaultdict(list)
-        for sig in signals:
-            if "endpoint_id" in sig:
-                ep_reasons[sig["endpoint_id"]].append(sig["detail"])
-            if "asset_id" in sig:
-                asset_reasons[sig["asset_id"]].append(sig["detail"])
-
-        for ep in endpoints:
-            if ep.id in ep_reasons:
-                ep.is_interesting = True
-                ep.interesting_reason = "; ".join(ep_reasons[ep.id][:_MAX_INTERESTING_REASONS])
+        # Load endpoints
+        endpoint_query = self.db.query(Endpoint).filter(Endpoint.target_id == target_id)
+        if run_id is not None:
+            endpoint_query = endpoint_query.filter(Endpoint.run_id == run_id)
+        endpoints: list[Endpoint] = endpoint_query.all()
 
         logger.info(
-            "Detection run: target_id=%d run_id=%s endpoints=%d assets=%d signals=%d",
+            "run_detection: target_id=%d run_id=%s → %d endpoints, %d assets",
             target_id,
             run_id,
             len(endpoints),
             len(assets),
-            len(signals),
         )
+
+        signals = self._heuristic_engine.analyze_batch(endpoints, assets)
+
+        # Build id → object maps for O(1) lookup
+        endpoint_map: dict[int, Endpoint] = {ep.id: ep for ep in endpoints}
+        asset_map: dict[int, Asset] = {a.id: a for a in assets}
+
+        flagged_endpoint_ids: set[int] = set()
+        flagged_asset_ids: set[int] = set()
+
+        for signal in signals:
+            ep_id = signal.get("endpoint_id")
+            if ep_id is not None and ep_id in endpoint_map:
+                ep = endpoint_map[ep_id]
+                detail = signal.get("detail", "")
+                if not ep.is_interesting:
+                    ep.is_interesting = True
+                    ep.interesting_reason = detail
+                else:
+                    # Append to existing reason — do not overwrite
+                    if ep.interesting_reason:
+                        ep.interesting_reason = ep.interesting_reason + "; " + detail
+                    else:
+                        ep.interesting_reason = detail
+                flagged_endpoint_ids.add(ep_id)
+
+            asset_id = signal.get("asset_id")
+            if asset_id is not None and asset_id in asset_map:
+                asset = asset_map[asset_id]
+                tag = signal.get("tag")
+                if tag:
+                    try:
+                        tags: list = json.loads(asset.tags_json or "[]")
+                    except (json.JSONDecodeError, TypeError):
+                        tags = []
+                    if tag not in tags:
+                        tags.append(tag)
+                        asset.tags_json = json.dumps(tags)
+                    flagged_asset_ids.add(asset_id)
+
+        # Aggregate report metrics
+        signals_by_confidence: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
+        signals_by_vuln_type: dict[str, int] = defaultdict(int)
+        high_confidence_signals: list[dict] = []
+
+        for signal in signals:
+            conf = signal.get("confidence", "low")
+            if conf in signals_by_confidence:
+                signals_by_confidence[conf] += 1
+            vuln_type = signal.get("vuln_type", "unknown")
+            signals_by_vuln_type[vuln_type] += 1
+            if conf == "high":
+                high_confidence_signals.append(signal)
 
         return {
             "target_id": target_id,
             "run_id": run_id,
-            "endpoints_analyzed": len(endpoints),
-            "assets_analyzed": len(assets),
-            "signals_found": len(signals),
-            "endpoints_flagged": len(ep_reasons),
-            "assets_flagged": len(asset_reasons),
-            "signals": signals,
+            "total_signals": len(signals),
+            "signals_by_confidence": signals_by_confidence,
+            "signals_by_vuln_type": dict(signals_by_vuln_type),
+            "high_confidence_signals": high_confidence_signals,
+            "all_signals": signals,
+            "endpoints_flagged": len(flagged_endpoint_ids),
+            "assets_flagged": len(flagged_asset_ids),
         }
+
+    def run_detection_on_endpoint(self, endpoint_id: int) -> list[dict]:
+        """Run heuristic analysis on a single endpoint and return its signals."""
+        endpoint: Endpoint | None = self.db.get(Endpoint, endpoint_id)
+        if endpoint is None:
+            logger.warning(
+                "run_detection_on_endpoint: endpoint_id=%d not found", endpoint_id
+            )
+            return []
+        return self._heuristic_engine.analyze_batch([endpoint], [])
+
+    def run_detection_on_asset(self, asset_id: int) -> list[dict]:
+        """Run heuristic analysis on a single asset and return its signals."""
+        asset: Asset | None = self.db.get(Asset, asset_id)
+        if asset is None:
+            logger.warning(
+                "run_detection_on_asset: asset_id=%d not found", asset_id
+            )
+            return []
+        return self._heuristic_engine.analyze_batch([], [asset])
 
     def auto_create_findings(
         self,
         target_id: int,
         signals: list[dict],
-        min_confidence: str,
-    ) -> tuple[int, list[int]]:
-        """Create draft findings from *signals* that meet *min_confidence*.
+        min_confidence: str = "medium",
+    ) -> list[Finding]:
+        """Create draft ``Finding`` objects for signals at or above *min_confidence*.
 
-        All findings are created with status=draft. Returns (count, list_of_ids).
+        Does **not** commit — the caller is responsible for committing.
+
+        .. warning::
+            All created findings have ``status="draft"``.  They are **NOT**
+            confirmed vulnerabilities.  The user **MUST** review and verify
+            each one manually before submission.
         """
-        min_rank = _CONFIDENCE_RANK.get(min_confidence, 1)
+        if min_confidence == "high":
+            allowed_confidences = {"high"}
+        else:
+            allowed_confidences = {"high", "medium"}
 
-        # Build a lookup so we can attach endpoint URLs to findings
-        endpoint_ids = {sig["endpoint_id"] for sig in signals if "endpoint_id" in sig}
-        endpoint_id_to_url: dict[int, str] = {}
-        if endpoint_ids:
-            rows = (
-                self.db.query(Endpoint.id, Endpoint.url)
-                .filter(Endpoint.id.in_(endpoint_ids))
-                .all()
-            )
-            endpoint_id_to_url = {row.id: row.url for row in rows}
+        findings: list[Finding] = []
 
-        finding_ids: list[int] = []
-        for sig in signals:
-            if _CONFIDENCE_RANK.get(sig.get("confidence", "low"), 0) < min_rank:
+        for signal in signals:
+            if signal.get("confidence") not in allowed_confidences:
                 continue
 
-            vuln_type = sig.get("vuln_type", "unknown")
-            detail = sig.get("detail", "")
-            severity = _SEVERITY_MAP.get(sig.get("severity_hint", "low"), "low")
-            url = endpoint_id_to_url.get(sig.get("endpoint_id")) if "endpoint_id" in sig else None
+            vuln_type: str = signal.get("vuln_type", "unknown")
+            detail: str = signal.get("detail", "")
+            severity: str = signal.get("severity_hint", "medium")
+            url: str | None = signal.get("url")
+            param: str | None = signal.get("param")
+
+            title = (
+                f"[Auto-detected] {detail}"
+                if detail
+                else f"[Auto-detected] {vuln_type.upper()} finding"
+            )
+
+            description = (
+                f"{detail}\n\n"
+                "⚠️ This finding was auto-generated by heuristic detection. "
+                "Manual verification is required before submission."
+            )
+
+            impact = _IMPACT_MAP.get(
+                vuln_type,
+                "This vulnerability may impact the security of the application.",
+            )
+
+            if url:
+                steps = (
+                    f"1. Navigate to {url}\n"
+                    f"2. Observe {detail}\n"
+                    "3. [Manual verification required]"
+                )
+            else:
+                steps = (
+                    "1. Locate the affected resource\n"
+                    f"2. Observe {detail}\n"
+                    "3. [Manual verification required]"
+                )
 
             finding = Finding(
                 target_id=target_id,
-                title=f"[Auto] {vuln_type.replace('_', ' ').title()}: {detail[:120]}",
+                title=title,
                 vulnerability_type=vuln_type,
                 severity=severity,
-                status=FindingStatus.DRAFT,
+                status="draft",
                 url=url,
-                description=detail,
-                steps_to_reproduce=(
-                    "Auto-generated from detection signal. Manual verification required."
-                ),
-                impact=(
-                    f"Potential {vuln_type.replace('_', ' ')} vulnerability "
-                    "detected by automated analysis."
-                ),
+                parameter=param,
+                description=description,
+                steps_to_reproduce=steps,
+                impact=impact,
             )
             self.db.add(finding)
-            self.db.flush()
-            finding_ids.append(finding.id)
+            findings.append(finding)
+            logger.debug(
+                "auto_create_findings: draft finding '%s' (vuln_type=%s, confidence=%s)",
+                title,
+                vuln_type,
+                signal.get("confidence"),
+            )
 
         logger.info(
-            "auto_create_findings: target_id=%d min_confidence=%s created=%d",
+            "auto_create_findings: target_id=%d → %d draft findings created",
             target_id,
-            min_confidence,
-            len(finding_ids),
+            len(findings),
         )
-        return len(finding_ids), finding_ids
+        return findings
