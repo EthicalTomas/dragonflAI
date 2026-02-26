@@ -101,3 +101,131 @@ uv pip install -r requirements.in
 ```
 
 You are now ready to run the backend and worker. Refer to the project README for the next steps.
+
+---
+
+## Vulnerability Reports
+
+dragonflAI lets you document findings and produce polished reports without leaving the tool.
+
+### Creating a Finding
+
+**Via the UI:** Open the **Findings** page, click **New Finding**, and fill in the title, affected endpoint, severity, steps to reproduce, impact, and (optionally) a CVSS vector string. Save to create the finding.
+
+**Via the API:**
+
+```bash
+curl -X POST http://localhost:8000/findings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Reflected XSS in search parameter",
+    "target_id": 1,
+    "affected_endpoint": "https://example.com/search?q=",
+    "severity": "medium",
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    "steps_to_reproduce": "1. Navigate to the search page\n2. Enter <script>alert(1)</script> in the q parameter\n3. Observe JS execution",
+    "impact": "Attacker can execute arbitrary JavaScript in the victim's browser.",
+    "remediation": "Encode all user-supplied output before rendering in HTML context."
+  }'
+```
+
+The system auto-calculates the CVSS score and severity label from the vector string before saving.
+
+---
+
+### Generating Reports
+
+Call the generate-report endpoint (or click **Generate Report** on the Finding detail page) and choose a template:
+
+```bash
+curl -X POST http://localhost:8000/findings/{finding_id}/generate-report \
+  -H "Content-Type: application/json" \
+  -d '{"template": "platform"}'
+```
+
+| Template | Best for |
+|---|---|
+| `full` | Comprehensive report with all details — keep this for your own records. |
+| `platform` | Formatted for bug bounty platform submission (HackerOne / Bugcrowd style) — copy-paste ready. |
+| `summary` | Short one-liner summary — for quick triage and internal review. |
+
+---
+
+### CVSS Scoring
+
+Enter a **CVSS 3.1 base vector string** when creating or updating a finding. The system parses the vector and automatically calculates the numeric score and severity label.
+
+**Format:** `CVSS:3.1/AV:<V>/AC:<V>/PR:<V>/UI:<V>/S:<V>/C:<V>/I:<V>/A:<V>`
+
+**Common examples:**
+
+| Vulnerability type | Example vector | Score | Severity |
+|---|---|---|---|
+| Reflected XSS (no auth) | `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N` | 6.1 | Medium |
+| SQL Injection (auth required) | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H` | 8.8 | High |
+| Unauthenticated RCE | `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` | 9.8 | Critical |
+| IDOR (limited data) | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N` | 4.3 | Medium |
+| Local privilege escalation | `CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H` | 7.8 | High |
+
+Severity thresholds: **Critical** ≥ 9.0 · **High** ≥ 7.0 · **Medium** ≥ 4.0 · **Low** ≥ 0.1 · **Informational** = 0.0.
+
+---
+
+### Exporting
+
+Download the generated report in two formats:
+
+```bash
+# Markdown (default)
+curl "http://localhost:8000/findings/{finding_id}/export?format=markdown" -o report.md
+
+# Plain text (markdown stripped)
+curl "http://localhost:8000/findings/{finding_id}/export?format=plaintext" -o report.txt
+```
+
+Files are saved under `artifacts/{target_id}/reports/` on the server.
+
+---
+
+### Batch Reports
+
+Generate a single combined assessment report for all findings in a target:
+
+```bash
+curl -X POST http://localhost:8000/findings/batch-report \
+  -H "Content-Type: application/json" \
+  -d '{
+    "finding_ids": [1, 2, 3],
+    "template": "full"
+  }'
+```
+
+The batch report includes a header with a severity breakdown (critical / high / medium / low counts), followed by each individual finding report separated by a horizontal rule.
+
+---
+
+### LLM Enhancement *(future)*
+
+When an LLM provider is configured in your `.env`, dragonflAI will automatically enhance each generated report for clarity and professionalism — tightening the impact statement, suggesting concrete remediation steps, and improving readability — without altering the factual content. No extra steps needed; the enhancement runs transparently after the base template is rendered. With the default configuration (no provider set), standard template output is used.
+
+---
+
+### Example Workflow
+
+```
+1. Discover a vulnerability during recon or manual testing.
+
+2. Create a finding:
+   POST /findings  (or use the Findings page in the UI)
+   Include your CVSS vector — the score is calculated automatically.
+
+3. Generate a report:
+   POST /findings/{id}/generate-report  {"template": "platform"}
+
+4. Export the report:
+   GET /findings/{id}/export?format=markdown
+
+5. Submit:
+   Open the exported .md file, copy the contents, and paste into
+   HackerOne, Bugcrowd, or your client's reporting portal.
+```
