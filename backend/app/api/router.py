@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from backend.app.api.routes.findings import findings_router
+from backend.app.api.routes.findings import router as findings_router
 from backend.app.api.routes.health import router as health_router
 from backend.app.api.routes.programs import router as programs_router
 from backend.app.api.routes.runs import router as runs_router
