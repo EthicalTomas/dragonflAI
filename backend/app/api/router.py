@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from backend.app.api.routes.assets import router as assets_router
 from backend.app.api.routes.findings import router as findings_router
 from backend.app.api.routes.health import router as health_router
 from backend.app.api.routes.programs import router as programs_router
@@ -13,3 +14,4 @@ api_router.include_router(programs_router, prefix="/programs", tags=["programs"]
 api_router.include_router(targets_router, prefix="/targets", tags=["targets"])
 api_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_router.include_router(findings_router, prefix="/findings", tags=["findings"])
+api_router.include_router(assets_router, prefix="/assets", tags=["assets"])
