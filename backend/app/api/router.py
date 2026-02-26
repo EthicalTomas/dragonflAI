@@ -16,6 +16,5 @@ api_router.include_router(programs_router, prefix="/programs", tags=["programs"]
 api_router.include_router(targets_router, prefix="/targets", tags=["targets"])
 api_router.include_router(runs_router, prefix="/runs", tags=["runs"])
 api_router.include_router(findings_router, prefix="/findings", tags=["findings"])
-api_router.include_router(endpoints_router, prefix="/endpoints", tags=["endpoints"])
 api_router.include_router(assets_router, prefix="/assets", tags=["assets"])
 api_router.include_router(detection_router, prefix="/detection", tags=["detection"])
