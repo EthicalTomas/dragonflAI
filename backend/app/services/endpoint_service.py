@@ -189,7 +189,7 @@ class EndpointService:
                 "Linked endpoint id=%s to asset id=%s", endpoint.id, asset.id
             )
 
-    def search_endpoints(self, db: Session, filters: dict) -> list[Endpoint]:
+    def search_endpoints(self, db: Session, filters: dict, skip: int = 0, limit: int | None = None) -> list[Endpoint]:
         query = db.query(Endpoint)
 
         if filters.get("target_id") is not None:
@@ -215,4 +215,7 @@ class EndpointService:
                 Endpoint.params_json.like(f"%{escaped}%", escape="\\")
             )
 
-        return query.order_by(Endpoint.last_seen_at.desc()).all()
+        query = query.order_by(Endpoint.last_seen_at.desc()).offset(skip)
+        if limit is not None:
+            query = query.limit(limit)
+        return query.all()
