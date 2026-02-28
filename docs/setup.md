@@ -1,4 +1,4 @@
-# dragonflAI – Local Setup Guide
+# dragonflAI — Setup Guide
 
 Step-by-step instructions for running dragonflAI on Linux.
 
@@ -16,7 +16,7 @@ python3 --version   # must be 3.11 or newer
 
 Download from <https://www.python.org/downloads/> or use your distro's package manager.
 
-### Docker and Docker Compose
+### Docker + Docker Compose v2
 
 ```bash
 docker --version
@@ -34,39 +34,46 @@ uv --version
 
 Docs: <https://docs.astral.sh/uv/>
 
-### Recon tools
+### Git
 
-| Tool | Purpose | Install |
-|---|---|---|
-| [subfinder](https://github.com/projectdiscovery/subfinder) | Subdomain enumeration | `go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest` |
-| [httpx](https://github.com/projectdiscovery/httpx) (CLI) | HTTP probing | `go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest` |
-| [nmap](https://nmap.org/) | Port/service scanning | `sudo apt install nmap` |
-| [dnsx](https://github.com/projectdiscovery/dnsx) | DNS resolution & brute-force | `go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest` |
+```bash
+git --version
+```
 
-> **Note:** The Go-based tools (subfinder, httpx, dnsx) require Go 1.21+.  
-> Ensure `$(go env GOPATH)/bin` is on your `PATH`.
+Install via your distro's package manager if not already present (e.g. `sudo apt install git`).
+
+### Recon tools (installed on host)
+
+| Tool | Install |
+|---|---|
+| [subfinder](https://github.com/projectdiscovery/subfinder) | `go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest` |
+| [httpx](https://github.com/projectdiscovery/httpx) (CLI) | `go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest` |
+| [dnsx](https://github.com/projectdiscovery/dnsx) | `go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest` |
+| [nmap](https://nmap.org/) | `sudo apt install nmap` |
+
+> **Note:** Go 1.21+ is required for the ProjectDiscovery tools (subfinder, httpx, dnsx).  
+> Ensure `$HOME/go/bin` is on your `PATH`: `export PATH=$PATH:$HOME/go/bin`
 
 ---
 
-## 2. Clone and Configure
+## 2. Clone & Configure
 
 ```bash
-git clone https://github.com/EthicalTomas/dragonflAI.git
-cd dragonflAI
+git clone https://github.com/EthicalTomas/dragonflAI.git && cd dragonflAI
 cp .env.example .env
 ```
 
 Open `.env` and adjust the values for your environment:
 
-| Variable | Default | Description |
-|---|---|---|
-| `DATABASE_URL` | `postgresql+psycopg://dragonflai:dragonflai_dev@localhost:5433/dragonflai` | SQLAlchemy connection string for PostgreSQL. The default matches the Docker Compose service on port **5433**. |
-| `REDIS_URL` | `redis://localhost:6380/0` | Redis connection URL. The default matches the Docker Compose service on port **6380**. |
-| `BACKEND_HOST` | `127.0.0.1` | Host the FastAPI backend binds to. |
-| `BACKEND_PORT` | `8000` | Port the FastAPI backend listens on. |
-| `BACKEND_URL` | `http://127.0.0.1:8000` | URL the Streamlit UI uses to reach the backend API. Must match `BACKEND_HOST` and `BACKEND_PORT`. |
-| `UI_HOST` | `127.0.0.1` | Host the Streamlit UI binds to. |
-| `UI_PORT` | `8501` | Port the Streamlit UI listens on. |
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Postgres connection string. The default uses port **5433** to avoid conflict with a locally-installed Postgres instance. |
+| `REDIS_URL` | Redis connection URL. The default uses port **6380**. |
+| `BACKEND_HOST` | Host the FastAPI server binds to. |
+| `BACKEND_PORT` | Port the FastAPI server listens on. |
+| `BACKEND_URL` | URL used by Streamlit to reach the API. Must match `BACKEND_HOST` and `BACKEND_PORT`. |
+| `UI_HOST` | Host the Streamlit server binds to. |
+| `UI_PORT` | Port the Streamlit server listens on. |
 
 The defaults work out-of-the-box for a local single-machine setup.
 
@@ -86,7 +93,19 @@ Verify both services are healthy:
 docker compose -f infra/docker-compose.yml ps
 ```
 
-Both containers (`dragonflai-postgres` on port 5433, `dragonflai-redis` on port 6380) should show a **healthy** status before continuing.
+Both containers should show a **healthy** status before continuing.
+
+Test Postgres connectivity:
+
+```bash
+psql -h localhost -p 5433 -U dragonflai -d dragonflai
+```
+
+Test Redis connectivity:
+
+```bash
+redis-cli -p 6380 ping   # expected output: PONG
+```
 
 ---
 
@@ -95,27 +114,88 @@ Both containers (`dragonflai-postgres` on port 5433, `dragonflai-redis` on port 
 Create a virtual environment, activate it, and install all required packages:
 
 ```bash
-uv venv
-source .venv/bin/activate
+uv venv && source .venv/bin/activate
 uv pip install -r requirements.in
 ```
 
-You are now ready to run the backend and worker. Refer to the project README for the next steps.
+---
+
+## 5. Run Database Migrations
+
+Apply all pending migrations to bring the schema up to date:
+
+```bash
+alembic -c migrations/alembic.ini upgrade head
+```
+
+To create a new migration after changing models:
+
+```bash
+alembic -c migrations/alembic.ini revision --autogenerate -m "description"
+```
 
 ---
 
-## Vulnerability Reports
+## 6. Start the Application
+
+Open three terminal windows (all with the virtualenv activated):
+
+**Terminal 1 — API:**
+
+```bash
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+**Terminal 2 — Worker:**
+
+```bash
+python -m worker.worker
+```
+
+**Terminal 3 — UI:**
+
+```bash
+streamlit run ui/app.py --server.port 8501
+```
+
+Or start everything with the dev script:
+
+```bash
+./scripts/dev.sh all
+```
+
+**Access:**
+
+| Service | URL |
+|---|---|
+| API | <http://127.0.0.1:8000> |
+| API docs (Swagger) | <http://127.0.0.1:8000/docs> |
+| UI | <http://127.0.0.1:8501> |
+
+---
+
+## 7. Verify Everything Works
+
+1. Open the UI at <http://127.0.0.1:8501>.
+2. Create a **Program**.
+3. Add a **Target** with one or more root domains.
+4. Start a dummy run and confirm it transitions from **queued → running → succeeded**.
+5. Check the API docs at <http://127.0.0.1:8000/docs> and exercise a few endpoints.
+
+---
+
+## 8. Vulnerability Reports
 
 dragonflAI lets you document findings and produce polished reports without leaving the tool.
 
 ### Creating a Finding
 
-**Via the UI:** Open the **Findings** page, click **New Finding**, and fill in the title, affected endpoint, severity, steps to reproduce, impact, and (optionally) a CVSS vector string. Save to create the finding.
+**Via the UI:** Open the **Findings** page, click **New Finding**, fill in the required fields (title, affected endpoint, severity, steps to reproduce, impact), and optionally enter a CVSS vector string. Save to create the finding.
 
-**Via the API:**
+**Via the API (`POST /findings`):**
 
 ```bash
-curl -X POST http://localhost:8000/findings \
+curl -X POST http://127.0.0.1:8000/findings \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Reflected XSS in search parameter",
@@ -124,7 +204,7 @@ curl -X POST http://localhost:8000/findings \
     "severity": "medium",
     "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
     "steps_to_reproduce": "1. Navigate to the search page\n2. Enter <script>alert(1)</script> in the q parameter\n3. Observe JS execution",
-    "impact": "Attacker can execute arbitrary JavaScript in the victim's browser.",
+    "impact": "Attacker can execute arbitrary JavaScript in the victim browser.",
     "remediation": "Encode all user-supplied output before rendering in HTML context."
   }'
 ```
@@ -133,21 +213,21 @@ The system auto-calculates the CVSS score and severity label from the vector str
 
 ---
 
-### Generating Reports
-
-Call the generate-report endpoint (or click **Generate Report** on the Finding detail page) and choose a template:
-
-```bash
-curl -X POST http://localhost:8000/findings/{finding_id}/generate-report \
-  -H "Content-Type: application/json" \
-  -d '{"template": "platform"}'
-```
+### Report Template Types
 
 | Template | Best for |
 |---|---|
-| `full` | Comprehensive report with all details — keep this for your own records. |
-| `platform` | Formatted for bug bounty platform submission (HackerOne / Bugcrowd style) — copy-paste ready. |
-| `summary` | Short one-liner summary — for quick triage and internal review. |
+| `full` | Comprehensive report with all details — for your records. |
+| `platform` | Formatted for HackerOne/Bugcrowd submission — copy-paste ready. |
+| `summary` | Short summary — for quick triage. |
+
+Generate a report via the API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/findings/{finding_id}/generate-report \
+  -H "Content-Type: application/json" \
+  -d '{"template": "platform"}'
+```
 
 ---
 
@@ -155,44 +235,37 @@ curl -X POST http://localhost:8000/findings/{finding_id}/generate-report \
 
 Enter a **CVSS 3.1 base vector string** when creating or updating a finding. The system parses the vector and automatically calculates the numeric score and severity label.
 
-**Format:** `CVSS:3.1/AV:<V>/AC:<V>/PR:<V>/UI:<V>/S:<V>/C:<V>/I:<V>/A:<V>`
+**Example vectors:**
 
-**Common examples:**
-
-| Vulnerability type | Example vector | Score | Severity |
+| Vulnerability | Vector | Score | Severity |
 |---|---|---|---|
-| Reflected XSS (no auth) | `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N` | 6.1 | Medium |
-| SQL Injection (auth required) | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H` | 8.8 | High |
-| Unauthenticated RCE | `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` | 9.8 | Critical |
-| IDOR (limited data) | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N` | 4.3 | Medium |
-| Local privilege escalation | `CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H` | 7.8 | High |
-
-Severity thresholds: **Critical** ≥ 9.0 · **High** ≥ 7.0 · **Medium** ≥ 4.0 · **Low** ≥ 0.1 · **Informational** = 0.0.
+| Reflected XSS | `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N` | 6.1 | Medium |
+| SSRF (internal) | `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N` | 8.6 | High |
+| IDOR | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N` | 6.5 | Medium |
+| RCE | `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` | 9.8 | Critical |
 
 ---
 
 ### Exporting
 
-Download the generated report in two formats:
+Download the generated report in Markdown or plain text:
 
 ```bash
-# Markdown (default)
-curl "http://localhost:8000/findings/{finding_id}/export?format=markdown" -o report.md
+# Markdown (.md)
+curl "http://127.0.0.1:8000/findings/{finding_id}/export?format=markdown" -o report.md
 
-# Plain text (markdown stripped)
-curl "http://localhost:8000/findings/{finding_id}/export?format=plaintext" -o report.txt
+# Plain text (.txt)
+curl "http://127.0.0.1:8000/findings/{finding_id}/export?format=plaintext" -o report.txt
 ```
-
-Files are saved under `artifacts/{target_id}/reports/` on the server.
 
 ---
 
 ### Batch Reports
 
-Generate a single combined assessment report for all findings in a target:
+Generate a combined assessment report for all findings:
 
 ```bash
-curl -X POST http://localhost:8000/findings/batch-report \
+curl -X POST http://127.0.0.1:8000/findings/batch-report \
   -H "Content-Type: application/json" \
   -d '{
     "finding_ids": [1, 2, 3],
@@ -200,32 +273,16 @@ curl -X POST http://localhost:8000/findings/batch-report \
   }'
 ```
 
-The batch report includes a header with a severity breakdown (critical / high / medium / low counts), followed by each individual finding report separated by a horizontal rule.
+The batch report includes a severity breakdown header followed by each individual finding separated by a horizontal rule.
 
 ---
 
-### LLM Enhancement *(future)*
+## 9. Troubleshooting
 
-When an LLM provider is configured in your `.env`, dragonflAI will automatically enhance each generated report for clarity and professionalism — tightening the impact statement, suggesting concrete remediation steps, and improving readability — without altering the factual content. No extra steps needed; the enhancement runs transparently after the base template is rendered. With the default configuration (no provider set), standard template output is used.
-
----
-
-### Example Workflow
-
-```
-1. Discover a vulnerability during recon or manual testing.
-
-2. Create a finding:
-   POST /findings  (or use the Findings page in the UI)
-   Include your CVSS vector — the score is calculated automatically.
-
-3. Generate a report:
-   POST /findings/{id}/generate-report  {"template": "platform"}
-
-4. Export the report:
-   GET /findings/{id}/export?format=markdown
-
-5. Submit:
-   Open the exported .md file, copy the contents, and paste into
-   HackerOne, Bugcrowd, or your client's reporting portal.
-```
+| Problem | Fix |
+|---|---|
+| **Port conflict** | Change the conflicting port in `.env` and `infra/docker-compose.yml`, then restart the containers. |
+| **Postgres connection refused** | Ensure the Docker container is running and healthy: `docker compose -f infra/docker-compose.yml ps`. |
+| **Recon tool not found** | Ensure Go tools are on your PATH: `export PATH=$PATH:$HOME/go/bin` (add to `~/.bashrc` or `~/.zshrc` to persist). |
+| **Alembic migration errors** | Ensure all SQLAlchemy models are imported in `migrations/env.py` before running migrations. |
+| **Worker not picking up jobs** | Ensure Redis is reachable (`redis-cli -p 6380 ping`) and the worker is listening on the `recon` queue. |
