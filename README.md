@@ -62,6 +62,7 @@ Open <http://127.0.0.1:8501>.
 
 ## Documentation
 
+- [Usage guide](docs/USAGE.md)
 - [Full setup guide](docs/setup.md)
 - [Ethics and guardrails](docs/safety.md)
 - [Planned features](docs/roadmap.md)
