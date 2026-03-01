@@ -75,4 +75,4 @@ See [docs/safety.md](docs/safety.md) for full policy.
 
 ## License
 
-MIT
+[MIT](LICENSE) (SPDX: `MIT`)
