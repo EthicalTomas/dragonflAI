@@ -306,7 +306,69 @@ The batch report includes a severity breakdown header followed by each individua
 
 ---
 
-## 9. Troubleshooting
+## 9. Scanner Infrastructure (Nuclei)
+
+dragonflAI ships a separate Docker Compose file for the Nuclei scanner so that scanner
+containers stay out of the core infrastructure stack and can be run on demand.
+
+### Prerequisites
+
+- **Docker Compose v2** (ships with Docker Desktop / Engine ≥ 23) — already listed in section 1.
+- **Git** — used by the template-fetch script to clone and verify the pinned template commit.
+
+### Fetch pinned Nuclei templates
+
+The exact version of nuclei-templates to use is recorded in `infra/scanners/templates.lock`.
+Run the helper script to clone the repository and check out that precise commit:
+
+```bash
+bash scripts/fetch_nuclei_templates.sh
+```
+
+The script will:
+
+1. Read the `url` and `commit` fields from `infra/scanners/templates.lock`.
+2. Clone (or fetch) the nuclei-templates repository into `infra/scanners/nuclei-templates/`.
+3. Check out the pinned commit.
+4. Verify that `HEAD` matches the pinned commit — and exit non-zero if it does not.
+
+The `infra/scanners/nuclei-templates/` directory is listed in `.gitignore` and is **not**
+committed to the repository.
+
+### Run Nuclei
+
+Start the Nuclei container with the templates mounted read-only:
+
+```bash
+docker compose -f infra/docker-compose.scanners.yml run --rm nuclei \
+  -t /nuclei-templates -u https://example.com
+```
+
+### Update the pinned commit
+
+To move to a newer set of templates:
+
+1. Find the commit SHA you want to pin (e.g. from the
+   [nuclei-templates releases](https://github.com/projectdiscovery/nuclei-templates/releases)
+   or `git log`).
+2. Edit `infra/scanners/templates.lock` and update the `commit=` line:
+
+   ```
+   url=https://github.com/projectdiscovery/nuclei-templates
+   commit=<new-sha>
+   ```
+
+3. Re-run the fetch script to pull and verify the new commit:
+
+   ```bash
+   bash scripts/fetch_nuclei_templates.sh
+   ```
+
+4. Commit the updated `infra/scanners/templates.lock`.
+
+---
+
+## 10. Troubleshooting
 
 | Problem | Fix |
 |---|---|
