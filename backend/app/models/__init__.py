@@ -6,4 +6,10 @@ from backend.app.models.asset import Asset, AssetType
 from backend.app.models.endpoint import Endpoint, EndpointSource
 from backend.app.models.scan import Scan, ScanResult, ScanStatus
 
-__all__ = ["Program", "Target", "Run", "RunStatus", "Finding", "FindingStatus", "Severity", "Asset", "AssetType", "Endpoint", "EndpointSource", "Scan", "ScanResult", "ScanStatus"]
+__all__ = [
+    "Program", "Target", "Run", "RunStatus",
+    "Finding", "FindingStatus", "Severity",
+    "Asset", "AssetType",
+    "Endpoint", "EndpointSource",
+    "Scan", "ScanResult", "ScanStatus",
+]
