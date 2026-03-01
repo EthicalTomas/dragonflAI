@@ -37,6 +37,8 @@ _MOCKED_MODULES = [
     "backend.app.parsers.nmap_parser",
     "backend.app.parsers.subfinder_parser",
     "backend.app.parsers.zap_parser",
+    "backend.app.runs",
+    "backend.app.runs.preflight",
     "backend.app.scope",
     "backend.app.scope.validator",
     "backend.app.services",

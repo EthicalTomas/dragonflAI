@@ -18,6 +18,7 @@ from backend.app.scope.validator import ScopeValidator
 from backend.app.services.asset_service import AssetService
 from backend.app.services.endpoint_service import EndpointService
 from backend.app.services.runs_service import append_log, set_progress, set_status
+from backend.app.runs.preflight import check_binaries
 from backend.app.tools.dnsx import DnsxTool
 from backend.app.tools.httpx_probe import HttpxTool
 from backend.app.tools.nmap import NmapTool
@@ -169,6 +170,9 @@ class ReconPipeline:
             logger.warning("ReconPipeline: unknown module %r, skipping", m)
         requested: set[str] = set(modules) - set(unknown)
         ordered_modules = [s for s in self.AVAILABLE_STEPS if s in requested]
+
+        # Preflight: verify required binaries are available before starting
+        check_binaries(ordered_modules)
 
         # Create artifacts directory
         artifacts_dir = os.path.join(
