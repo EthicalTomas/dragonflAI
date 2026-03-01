@@ -33,6 +33,7 @@ def create_run(body: RunCreate, db: Session = Depends(get_db)):
     q.enqueue(
         "worker.jobs.execute_run.execute_run",
         run.id,
+        job_timeout=settings.job_timeout_seconds,
         retry=Retry(max=3, interval=[10, 30, 60]),
     )
     return run

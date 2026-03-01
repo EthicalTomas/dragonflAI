@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     redis_url: str
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
+    # Maximum wall-clock seconds a recon job may run before RQ kills it.
+    # Recon steps (subfinder, nmap, …) can be long; default to 1 hour.
+    job_timeout_seconds: int = 3600
 
 
 settings = Settings()
