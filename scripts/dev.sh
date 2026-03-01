@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Error: required command '$1' not found in PATH." >&2
+    exit 1
+  }
+}
+
 usage() {
   cat <<EOF
 Usage: $0 <command> [args]
@@ -19,21 +26,27 @@ EOF
 
 case "${1:-}" in
   infra)
+    require_cmd docker
     docker compose -f infra/docker-compose.yml up -d
     ;;
   api)
+    require_cmd uvicorn
     uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
     ;;
   worker)
+    require_cmd python
     python -m worker.worker
     ;;
   ui)
+    require_cmd streamlit
     streamlit run ui/app.py --server.port 8501
     ;;
   migrate)
+    require_cmd alembic
     alembic -c migrations/alembic.ini upgrade head
     ;;
   makemigration)
+    require_cmd alembic
     if [ -z "${2:-}" ]; then
       echo "Error: makemigration requires a message argument." >&2
       usage
@@ -42,6 +55,12 @@ case "${1:-}" in
     alembic -c migrations/alembic.ini revision --autogenerate -m "$2"
     ;;
   all)
+    require_cmd docker
+    require_cmd uvicorn
+    require_cmd python
+    require_cmd streamlit
+    require_cmd pg_isready
+    require_cmd redis-cli
     docker compose -f infra/docker-compose.yml up -d
 
     INFRA_TIMEOUT="${INFRA_WAIT_SECONDS:-60}"
