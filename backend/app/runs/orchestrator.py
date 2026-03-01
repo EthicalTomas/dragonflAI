@@ -60,3 +60,4 @@ class RunOrchestrator:
                     "RunOrchestrator: unhandled error before run was loaded (run_id=%d)",
                     self.run_id,
                 )
+            raise

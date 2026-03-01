@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from redis import Redis
 from rq import Queue
+from rq.job import Retry
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
@@ -29,7 +30,11 @@ def create_run(body: RunCreate, db: Session = Depends(get_db)):
     db.refresh(run)
     redis_conn = Redis.from_url(settings.redis_url)
     q = Queue("recon", connection=redis_conn)
-    q.enqueue("worker.jobs.execute_run.execute_run", run.id)
+    q.enqueue(
+        "worker.jobs.execute_run.execute_run",
+        run.id,
+        retry=Retry(max=3, interval=[10, 30, 60]),
+    )
     return run
 
 
