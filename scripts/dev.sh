@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 usage() {
   cat <<EOF
@@ -43,8 +43,30 @@ case "${1:-}" in
     ;;
   all)
     docker compose -f infra/docker-compose.yml up -d
-    echo "Waiting ${INFRA_WAIT_SECONDS:-5} seconds for infrastructure to be ready..."
-    sleep "${INFRA_WAIT_SECONDS:-5}"
+
+    INFRA_TIMEOUT="${INFRA_WAIT_SECONDS:-60}"
+    echo "Waiting up to ${INFRA_TIMEOUT}s for Postgres..."
+    deadline=$(( $(date +%s) + ${INFRA_TIMEOUT} ))
+    until pg_isready -h 127.0.0.1 -p 5433 -U dragonflai -d dragonflai >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "Error: Postgres was not ready after ${INFRA_TIMEOUT}s." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "Postgres is ready."
+
+    echo "Waiting up to ${INFRA_TIMEOUT}s for Redis..."
+    deadline=$(( $(date +%s) + ${INFRA_TIMEOUT} ))
+    until redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "Error: Redis was not ready after ${INFRA_TIMEOUT}s." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "Redis is ready."
+
     uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 &
     API_PID=$!
     python -m worker.worker &
