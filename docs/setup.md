@@ -111,12 +111,41 @@ redis-cli -p 6380 ping   # expected output: PONG
 
 ## 4. Install Python Dependencies
 
-Create a virtual environment, activate it, and install all required packages:
+### Why a lockfile?
+
+`requirements.in` lists the **top-level, unpinned intents** (e.g. `fastapi`, `sqlalchemy`).
+`requirements.txt` is the **compiled, fully-pinned lockfile** — every direct *and* transitive
+dependency is recorded at an exact version so that every developer and CI run gets a
+bit-for-bit identical environment.
+
+Without the lockfile a fresh `pip install` can silently pull a newer transitive dependency
+that introduces a regression or breaking API change, making bugs hard to reproduce.
+
+**Always install from the lockfile for reproducible environments:**
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install -r requirements.in
+uv pip install -r requirements.txt
 ```
+
+### Updating the lockfile
+
+When you need to add or upgrade a dependency:
+
+1. Edit `requirements.in` (add or change the top-level package).
+2. Re-compile the lockfile (requires [pip-tools](https://pip-tools.readthedocs.io/)):
+
+   ```bash
+   pip-compile --output-file=requirements.txt requirements.in
+   ```
+
+3. Re-install from the updated lockfile:
+
+   ```bash
+   uv pip install -r requirements.txt
+   ```
+
+4. Commit **both** `requirements.in` and `requirements.txt`.
 
 ---
 
