@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.app.core.config import settings
 from backend.app.db.base import Base
-from backend.app.models import Program, Target, Run  # noqa: F401 – required for autogenerate
+from backend.app.models import Program, Target, Run, Scan, ScanResult  # noqa: F401 – required for autogenerate
 
 config = context.config
 
