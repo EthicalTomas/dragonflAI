@@ -13,5 +13,6 @@ def execute_run(run_id: int) -> None:
         orchestrator.execute()
     except Exception:
         logger.exception("execute_run: orchestrator crashed (run_id=%d)", run_id)
+        raise
     finally:
         db.close()
