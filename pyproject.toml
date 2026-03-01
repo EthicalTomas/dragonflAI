@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 150
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E711",  # comparison to None (SQLAlchemy uses == None)
+    "E712",  # comparison to True/False (SQLAlchemy uses == True/False)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # re-exports in __init__.py are intentional
