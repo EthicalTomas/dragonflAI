@@ -358,5 +358,170 @@ class TestExportScanUrls(unittest.TestCase):
             self.assertEqual(path.read_text().strip(), "")
 
 
+# ---------------------------------------------------------------------------
+# Tests for scan_preflight_scope_filter
+# ---------------------------------------------------------------------------
+
+def _make_validator(in_scope_hosts: list[str]) -> MagicMock:
+    """Return a minimal ScopeValidator-like mock."""
+    validator = MagicMock()
+    # Simulate _include_rules being non-empty (or empty)
+    validator._include_rules = in_scope_hosts  # non-empty means rules are set
+    validator.is_in_scope.side_effect = lambda host: host in in_scope_hosts
+    return validator
+
+
+class TestScanPreflightScopeFilter(unittest.TestCase):
+    """Tests for scan_preflight_scope_filter()."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_url_export()
+
+    def test_keeps_in_scope_urls(self) -> None:
+        """In-scope URLs are kept unchanged."""
+        validator = _make_validator(["example.com"])
+        urls = ["http://example.com/", "https://example.com/admin"]
+        result, dropped = self.mod.scan_preflight_scope_filter(urls, validator)
+        self.assertEqual(dropped, 0)
+        self.assertEqual(sorted(result), sorted(urls))
+
+    def test_drops_out_of_scope_urls(self) -> None:
+        """Out-of-scope URLs are removed from the result list."""
+        validator = _make_validator(["example.com"])
+        urls = [
+            "http://example.com/",
+            "http://evil.com/",
+            "https://other.net/admin",
+        ]
+        result, dropped = self.mod.scan_preflight_scope_filter(urls, validator)
+        self.assertEqual(dropped, 2)
+        self.assertEqual(result, ["http://example.com/"])
+
+    def test_out_of_scope_urls_never_in_result(self) -> None:
+        """No out-of-scope URL should appear in the returned list."""
+        in_scope = ["allowed.example.com"]
+        validator = _make_validator(in_scope)
+        out_of_scope_urls = [
+            "http://evil.com/",
+            "https://attacker.net/",
+            "http://notallowed.example.com/",
+        ]
+        in_scope_urls = ["https://allowed.example.com/"]
+        urls = in_scope_urls + out_of_scope_urls
+        result, dropped = self.mod.scan_preflight_scope_filter(urls, validator)
+        for url in out_of_scope_urls:
+            self.assertNotIn(url, result, f"Out-of-scope URL leaked into result: {url}")
+        self.assertEqual(dropped, len(out_of_scope_urls))
+
+    def test_no_scope_rules_raises_runtime_error(self) -> None:
+        """Default-deny: a validator with no include rules causes RuntimeError."""
+        validator = _make_validator([])  # empty = no include rules configured
+        with self.assertRaises(RuntimeError) as ctx:
+            self.mod.scan_preflight_scope_filter(["http://example.com/"], validator)
+        self.assertIn("no scope include rules", str(ctx.exception))
+
+    def test_all_urls_out_of_scope_returns_empty_list(self) -> None:
+        """When every URL is out-of-scope the returned list is empty."""
+        validator = _make_validator(["allowed.com"])
+        urls = ["http://other.com/", "https://another.net/"]
+        result, dropped = self.mod.scan_preflight_scope_filter(urls, validator)
+        self.assertEqual(result, [])
+        self.assertEqual(dropped, 2)
+
+    def test_empty_url_list_returns_empty(self) -> None:
+        """Filtering an empty list always returns an empty list."""
+        validator = _make_validator(["example.com"])
+        result, dropped = self.mod.scan_preflight_scope_filter([], validator)
+        self.assertEqual(result, [])
+        self.assertEqual(dropped, 0)
+
+    def test_returns_tuple_of_list_and_int(self) -> None:
+        """Return type is (list[str], int)."""
+        validator = _make_validator(["example.com"])
+        result = self.mod.scan_preflight_scope_filter(["http://example.com/"], validator)
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        urls_out, count = result
+        self.assertIsInstance(urls_out, list)
+        self.assertIsInstance(count, int)
+
+
+class TestExportScanUrlsWithScope(unittest.TestCase):
+    """Tests for export_scan_urls() with an optional scope_validator."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_url_export()
+
+    def _make_asset(self, value: str, asset_type: str = "subdomain", ports_json: str = "[]") -> MagicMock:
+        asset = MagicMock()
+        asset.asset_type = asset_type
+        asset.value = value
+        asset.ports_json = ports_json
+        return asset
+
+    def _make_endpoint(self, url: str) -> MagicMock:
+        ep = MagicMock()
+        ep.url = url
+        return ep
+
+    def _make_db(self, endpoints: list, assets: list) -> MagicMock:
+        db = MagicMock()
+        endpoint_query = MagicMock()
+        endpoint_query.filter.return_value.all.return_value = endpoints
+        asset_query = MagicMock()
+        asset_query.filter.return_value.all.return_value = assets
+        db.query.side_effect = [endpoint_query, asset_query]
+        return db
+
+    def test_scope_filter_removes_out_of_scope_from_file(self) -> None:
+        """With a scope_validator, out-of-scope URLs are absent from urls.txt."""
+        db = self._make_db(
+            endpoints=[
+                self._make_endpoint("http://allowed.example.com/"),
+                self._make_endpoint("http://blocked.evil.com/"),
+            ],
+            assets=[self._make_asset("allowed.example.com")],
+        )
+        validator = _make_validator(["allowed.example.com"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self.mod.export_scan_urls(
+                db, target_id=1, scan_id=1, artifacts_dir=tmpdir,
+                scope_validator=validator,
+            )
+            content = path.read_text()
+        self.assertIn("allowed.example.com", content)
+        self.assertNotIn("evil.com", content)
+
+    def test_no_scope_validator_exports_all_urls(self) -> None:
+        """Without a scope_validator, all URLs are written (backward-compat)."""
+        db = self._make_db(
+            endpoints=[self._make_endpoint("http://example.com/page")],
+            assets=[self._make_asset("example.com")],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self.mod.export_scan_urls(
+                db, target_id=1, scan_id=1, artifacts_dir=tmpdir,
+                scope_validator=None,
+            )
+            content = path.read_text()
+        self.assertIn("example.com", content)
+
+    def test_no_include_rules_raises_runtime_error(self) -> None:
+        """scope_validator with no include rules raises RuntimeError."""
+        db = self._make_db(
+            endpoints=[self._make_endpoint("http://example.com/")],
+            assets=[],
+        )
+        validator = _make_validator([])  # no include rules
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(RuntimeError):
+                self.mod.export_scan_urls(
+                    db, target_id=1, scan_id=1, artifacts_dir=tmpdir,
+                    scope_validator=validator,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

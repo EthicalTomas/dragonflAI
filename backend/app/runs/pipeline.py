@@ -7,6 +7,7 @@ import traceback
 
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.detection.orchestrator import DetectionOrchestrator
 from backend.app.models import Run, RunStatus, Target
 from backend.app.parsers.burp_parser import parse_burp_xml
@@ -71,6 +72,76 @@ def _parse_dnsx_output(filepath: str) -> list[dict]:
     return results
 
 
+_AUTO_VERIFY_SEVERITIES = frozenset({"high", "critical"})
+
+
+def _queue_auto_verifications(
+    db: Session,
+    scan_id: int,
+    target_id: int,
+    run_id: "int | None",
+) -> None:
+    """Queue verification jobs for high/critical scan results when auto_verify is enabled.
+
+    Creates :class:`~backend.app.models.verification.Verification` records for
+    each high or critical ``ScanResult`` from *scan_id* and enqueues them via RQ.
+    Failures are logged but do not propagate so the pipeline step succeeds.
+    """
+    try:
+        from backend.app.models.scan import ScanResult  # noqa: PLC0415
+        from backend.app.models.verification import Verification, VerificationStatus  # noqa: PLC0415
+
+        results = (
+            db.query(ScanResult)
+            .filter(
+                ScanResult.scan_id == scan_id,
+                ScanResult.severity.in_(list(_AUTO_VERIFY_SEVERITIES)),
+            )
+            .all()
+        )
+        if not results:
+            logger.info("_queue_auto_verifications: no high/critical results for scan_id=%d", scan_id)
+            return
+
+        from redis import Redis  # noqa: PLC0415
+        from rq import Queue  # noqa: PLC0415
+        from rq.job import Retry  # noqa: PLC0415
+
+        redis_conn = Redis.from_url(settings.redis_url)
+        q = Queue("verifications", connection=redis_conn)
+
+        queued = 0
+        for result in results:
+            verification = Verification(
+                target_id=target_id,
+                run_id=run_id,
+                status=VerificationStatus.QUEUED,
+                method="http_replay",
+                log_text="[auto_verify] queued from pipeline nuclei step\n",
+            )
+            db.add(verification)
+            db.flush()
+            q.enqueue(
+                "worker.jobs.execute_verification.execute_verification",
+                verification.id,
+                job_timeout=settings.job_timeout_seconds,
+                retry=Retry(max=3, interval=[10, 30, 60]),
+            )
+            queued += 1
+
+        db.commit()
+        logger.info(
+            "_queue_auto_verifications: queued %d verification jobs for scan_id=%d",
+            queued,
+            scan_id,
+        )
+    except Exception:
+        logger.exception(
+            "_queue_auto_verifications: failed to queue verifications for scan_id=%d; continuing",
+            scan_id,
+        )
+
+
 class ReconPipeline:
     """Orchestrates a multi-step reconnaissance pipeline for a single run."""
 
@@ -82,6 +153,7 @@ class ReconPipeline:
         "import_burp",
         "import_zap",
         "detect",
+        "nuclei",
     ]
 
     def __init__(
@@ -393,6 +465,109 @@ class ReconPipeline:
                         target_id=target.id, run_id=self.run_id
                     )
                     signals_detected = detection_result.get("total_signals", 0)
+
+                # ---- nuclei --------------------------------------------------
+                elif step == "nuclei":
+                    if not settings.scan_enabled:
+                        append_log(
+                            self.db,
+                            run,
+                            "nuclei: scanning is disabled (scan_enabled=false). "
+                            "Set SCAN_ENABLED=true to enable.",
+                        )
+                        logger.warning(
+                            "ReconPipeline: nuclei step skipped – scan_enabled=false"
+                        )
+                    else:
+                        from backend.app.models.scan import Scan, ScanStatus  # noqa: PLC0415
+                        from backend.app.scans.nuclei_parser import parse_nuclei_jsonl  # noqa: PLC0415
+                        from backend.app.scans.nuclei_runner import preflight as nuclei_preflight  # noqa: PLC0415
+                        from backend.app.scans.nuclei_runner import run_nuclei  # noqa: PLC0415
+                        from backend.app.scans.url_export import export_scan_urls  # noqa: PLC0415
+
+                        nuclei_artifacts_dir = os.path.join(
+                            self.artifacts_base_dir,
+                            str(target.id),
+                            str(self.run_id),
+                            "scan",
+                        )
+                        os.makedirs(nuclei_artifacts_dir, exist_ok=True)
+
+                        # Create a Scan record linked to this run
+                        scan_record = Scan(
+                            target_id=target.id,
+                            run_id=self.run_id,
+                            scanner="nuclei",
+                            status=ScanStatus.RUNNING,
+                            log_text="[pipeline/nuclei] starting\n",
+                        )
+                        self.db.add(scan_record)
+                        self.db.commit()
+                        self.db.refresh(scan_record)
+
+                        append_log(
+                            self.db, run,
+                            f"nuclei: created scan record id={scan_record.id}",
+                        )
+                        self.db.commit()
+
+                        # Export scope-filtered URLs
+                        urls_path = export_scan_urls(
+                            self.db,
+                            target_id=target.id,
+                            scan_id=scan_record.id,
+                            artifacts_dir=nuclei_artifacts_dir,
+                            scope_validator=self.scope_validator,
+                        )
+                        append_log(
+                            self.db, run,
+                            f"nuclei: exported URLs to {urls_path}",
+                        )
+                        self.db.commit()
+
+                        # Nuclei preflight + run
+                        config_meta = nuclei_preflight()
+                        scan_record.config_json = json.dumps({
+                            "scanner": "nuclei",
+                            "template_commit": config_meta.get("template_commit"),
+                            "templates_url": config_meta.get("templates_url"),
+                            "tags": config_meta.get("tags"),
+                            "etags": config_meta.get("etags"),
+                            "flags": config_meta.get("flags"),
+                            "artifacts_dir": nuclei_artifacts_dir,
+                        })
+                        self.db.commit()
+
+                        jsonl_path = run_nuclei(artifacts_dir=nuclei_artifacts_dir)
+
+                        # Parse and store results
+                        result_count = parse_nuclei_jsonl(
+                            self.db,
+                            jsonl_path=jsonl_path,
+                            scan_id=scan_record.id,
+                            target_id=target.id,
+                            run_id=self.run_id,
+                        )
+
+                        scan_record.status = ScanStatus.SUCCEEDED
+                        scan_record.log_text = (
+                            (scan_record.log_text or "")
+                            + f"[pipeline/nuclei] done: {result_count} results\n"
+                        )
+                        self.db.commit()
+
+                        append_log(
+                            self.db, run,
+                            f"nuclei: scan complete (scan_id={scan_record.id}), "
+                            f"{result_count} results stored.",
+                        )
+                        self.db.commit()
+
+                        # Auto-verify high/critical results when configured
+                        if settings.auto_verify and result_count > 0:
+                            _queue_auto_verifications(
+                                self.db, scan_record.id, target.id, self.run_id
+                            )
 
                 # ---- post-step bookkeeping -----------------------------------
                 completed_steps += 1
