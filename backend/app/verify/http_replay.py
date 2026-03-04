@@ -7,6 +7,7 @@ or deny suspected web-layer findings.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Maximum response body bytes to capture (1 MB)
 _MAX_BODY_BYTES = 1 * 1024 * 1024
 
-# Secrets patterns to redact from captured headers/body
+# Headers whose values must be redacted from captured evidence
 _REDACT_HEADERS = frozenset(
     {
         "authorization",
@@ -26,7 +27,9 @@ _REDACT_HEADERS = frozenset(
         "set-cookie",
         "x-api-key",
         "x-auth-token",
+        "x-amz-security-token",
         "proxy-authorization",
+        "x-forwarded-authorization",
     }
 )
 
@@ -63,6 +66,17 @@ class HttpReplayVerifier(BaseVerifier):
         self.markers = markers or []
         self.follow_redirects = follow_redirects
 
+    @staticmethod
+    def _error_evidence(target: str, elapsed: float, error: str) -> dict[str, Any]:
+        """Build a minimal evidence dict for error/exception cases."""
+        return {
+            "schema_version": 1,
+            "method": "GET",
+            "final_url": target,
+            "elapsed_s": round(elapsed, 3),
+            "error": error,
+        }
+
     def verify(self, target: str, **kwargs: Any) -> VerificationResult:  # noqa: ARG002
         """Send a GET request to *target* and evaluate the response.
 
@@ -70,9 +84,12 @@ class HttpReplayVerifier(BaseVerifier):
         -------
         VerificationResult
             ``confirmed``   – response received and all markers matched.
-            ``unconfirmed`` – response received but markers not matched.
-            ``inconclusive``– network/protocol error.
+            ``unconfirmed`` – response received but proof condition clearly fails
+                              (e.g. 5xx or no markers matched when markers provided).
+            ``inconclusive``– network/protocol error, or no vuln-specific proof
+                              logic available to confirm.
         """
+        t0 = time.monotonic()
         try:
             with httpx.Client(
                 follow_redirects=self.follow_redirects,
@@ -80,28 +97,36 @@ class HttpReplayVerifier(BaseVerifier):
             ) as client:
                 response = client.get(target)
         except httpx.TransportError as exc:
+            elapsed = time.monotonic() - t0
             logger.warning("HttpReplayVerifier: transport error for %r: %s", target, exc)
             return VerificationResult(
                 status="inconclusive",
-                evidence={"error": str(exc)},
+                evidence=self._error_evidence(target, elapsed, str(exc)),
                 notes="Network/transport error during HTTP replay.",
             )
         except Exception as exc:
+            elapsed = time.monotonic() - t0
             logger.warning("HttpReplayVerifier: unexpected error for %r: %s", target, exc)
             return VerificationResult(
                 status="inconclusive",
-                evidence={"error": str(exc)},
+                evidence=self._error_evidence(target, elapsed, str(exc)),
                 notes="Unexpected error during HTTP replay.",
             )
 
+        elapsed = time.monotonic() - t0
         body_bytes = response.content[:_MAX_BODY_BYTES]
         body_text = body_bytes.decode("utf-8", errors="replace")
+        body_truncated = len(response.content) > _MAX_BODY_BYTES
 
         evidence: dict[str, Any] = {
-            "url": str(response.url),
+            "schema_version": 1,
+            "method": "GET",
+            "final_url": str(response.url),
+            "elapsed_s": round(elapsed, 3),
             "status_code": response.status_code,
             "response_headers": _redact_headers(dict(response.headers)),
             "body_snippet": body_text[:2000],
+            "body_truncated": body_truncated,
         }
 
         if self.markers:
@@ -120,15 +145,19 @@ class HttpReplayVerifier(BaseVerifier):
                 notes="Response received but no markers matched.",
             )
 
-        # No markers specified – presence of a successful response is sufficient
-        if response.status_code < 500:
+        # No markers and no vuln-specific proof logic: a non-5xx response alone
+        # is not strong enough evidence to confirm a finding.
+        if response.status_code >= 500:
             return VerificationResult(
-                status="confirmed",
+                status="unconfirmed",
                 evidence=evidence,
-                notes=f"HTTP {response.status_code} received from target.",
+                notes=f"HTTP {response.status_code} received; server error indicates proof condition fails.",
             )
         return VerificationResult(
-            status="unconfirmed",
+            status="inconclusive",
             evidence=evidence,
-            notes=f"HTTP {response.status_code} received; server error.",
+            notes=(
+                f"HTTP {response.status_code} received, but no vulnerability-specific "
+                "proof logic available. Use markers or a per-vuln verifier to confirm."
+            ),
         )

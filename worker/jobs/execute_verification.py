@@ -41,11 +41,15 @@ def _host_from_url(url: str) -> str:
 def _run_verifier(method: str, target_value: str, finding: Finding | None) -> dict[str, Any]:
     """Dispatch to the appropriate verifier and return a result dict."""
     if method == "http_replay":
-        from backend.app.verify.http_replay import HttpReplayVerifier  # noqa: PLC0415
+        from backend.app.verify.vuln_router import VulnRouter  # noqa: PLC0415
 
-        url = (finding.url if finding and finding.url else target_value)
-        verifier = HttpReplayVerifier()
-        result = verifier.verify(url)
+        url = finding.url if finding and finding.url else target_value
+        router = VulnRouter()
+        result = router.route(
+            url,
+            vulnerability_type=finding.vulnerability_type if finding else None,
+            title=finding.title if finding else None,
+        )
 
     elif method == "dns_recheck":
         from backend.app.verify.dns_recheck import DnsRecheckVerifier  # noqa: PLC0415
