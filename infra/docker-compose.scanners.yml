@@ -3,5 +3,5 @@ services:
     image: projectdiscovery/nuclei:v3.2.4
     container_name: dragonflai-nuclei
     volumes:
-      - ./scanners/nuclei-templates:/nuclei-templates:ro
+      - ./scanners/nuclei-templates:/templates:ro
     entrypoint: ["nuclei"]
