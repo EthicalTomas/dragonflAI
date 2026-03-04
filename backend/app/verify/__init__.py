@@ -4,6 +4,7 @@ from backend.app.verify.base import BaseVerifier, VerificationResult
 from backend.app.verify.http_replay import HttpReplayVerifier
 from backend.app.verify.dns_recheck import DnsRecheckVerifier
 from backend.app.verify.screenshot import ScreenshotVerifier
+from backend.app.verify.vuln_router import VulnRouter
 
 __all__ = [
     "BaseVerifier",
@@ -11,4 +12,5 @@ __all__ = [
     "HttpReplayVerifier",
     "DnsRecheckVerifier",
     "ScreenshotVerifier",
+    "VulnRouter",
 ]
