@@ -23,3 +23,21 @@ class ScanOut(BaseModel):
     updated_at: datetime.datetime | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ScanResultOut(BaseModel):
+    id: int
+    scan_id: int
+    target_id: int
+    run_id: int | None
+    tool: str
+    severity: str
+    template_id: str | None
+    title: str
+    matched_url: str | None
+    tags_json: str
+    evidence_json: str
+    raw_json: str
+    created_at: datetime.datetime
+
+    model_config = ConfigDict(from_attributes=True)
