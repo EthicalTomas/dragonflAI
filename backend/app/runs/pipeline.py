@@ -90,6 +90,9 @@ def _queue_auto_verifications(
     try:
         from backend.app.models.scan import ScanResult  # noqa: PLC0415
         from backend.app.models.verification import Verification, VerificationStatus  # noqa: PLC0415
+        from redis import Redis  # noqa: PLC0415
+        from rq import Queue  # noqa: PLC0415
+        from rq.job import Retry  # noqa: PLC0415
 
         results = (
             db.query(ScanResult)
@@ -102,10 +105,6 @@ def _queue_auto_verifications(
         if not results:
             logger.info("_queue_auto_verifications: no high/critical results for scan_id=%d", scan_id)
             return
-
-        from redis import Redis  # noqa: PLC0415
-        from rq import Queue  # noqa: PLC0415
-        from rq.job import Retry  # noqa: PLC0415
 
         redis_conn = Redis.from_url(settings.redis_url)
         q = Queue("verifications", connection=redis_conn)

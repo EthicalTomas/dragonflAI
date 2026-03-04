@@ -52,6 +52,14 @@ class ScopeValidator:
         excluded = any(self._matches(host, r) for r in self._exclude_rules)
         return not excluded
 
+    def has_include_rules(self) -> bool:
+        """Return True when at least one include rule is configured.
+
+        Used by the scan layer to implement default-deny: a ``ScopeValidator``
+        with no include rules refuses to export URLs for scanning.
+        """
+        return bool(self._include_rules)
+
     def check_or_raise(self, host: str) -> None:
         if not self.is_in_scope(host):
             raise ScopeViolationError(

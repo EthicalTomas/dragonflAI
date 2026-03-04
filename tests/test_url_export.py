@@ -365,8 +365,9 @@ class TestExportScanUrls(unittest.TestCase):
 def _make_validator(in_scope_hosts: list[str]) -> MagicMock:
     """Return a minimal ScopeValidator-like mock."""
     validator = MagicMock()
-    # Simulate _include_rules being non-empty (or empty)
-    validator._include_rules = in_scope_hosts  # non-empty means rules are set
+    # Simulate has_include_rules() public method and _include_rules private attr
+    validator._include_rules = in_scope_hosts  # kept for backward-compat in tests
+    validator.has_include_rules.return_value = bool(in_scope_hosts)
     validator.is_in_scope.side_effect = lambda host: host in in_scope_hosts
     return validator
 

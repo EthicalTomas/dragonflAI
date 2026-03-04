@@ -153,7 +153,7 @@ def scan_preflight_scope_filter(
         configured means scanning is refused).
     """
     # Default-deny: no include rules → scan refuses to run
-    if not getattr(scope_validator, "_include_rules", None):
+    if not scope_validator.has_include_rules():
         raise RuntimeError(
             "scan_preflight_scope_filter: no scope include rules are defined. "
             "Configure in-scope rules for the target before scanning."
