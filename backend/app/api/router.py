@@ -11,6 +11,7 @@ from backend.app.api.routes.runs import router as runs_router
 from backend.app.api.routes.scan_results import router as scan_results_router
 from backend.app.api.routes.scans import router as scans_router
 from backend.app.api.routes.targets import router as targets_router
+from backend.app.api.routes.verifications import router as verifications_router
 
 api_router = APIRouter()
 
@@ -25,3 +26,4 @@ api_router.include_router(assets_router, prefix="/assets", tags=["assets"])
 api_router.include_router(endpoints_router, prefix="/endpoints", tags=["endpoints"])
 api_router.include_router(detection_router, prefix="/detection", tags=["detection"])
 api_router.include_router(diffs_router, prefix="/diffs", tags=["diffs"])
+api_router.include_router(verifications_router, prefix="/verifications", tags=["verifications"])
