@@ -5,6 +5,7 @@ from backend.app.models.finding import Finding, FindingStatus, Severity
 from backend.app.models.asset import Asset, AssetType
 from backend.app.models.endpoint import Endpoint, EndpointSource
 from backend.app.models.scan import Scan, ScanResult, ScanStatus
+from backend.app.models.verification import Verification, VerificationStatus
 
 __all__ = [
     "Program", "Target", "Run", "RunStatus",
@@ -12,4 +13,5 @@ __all__ = [
     "Asset", "AssetType",
     "Endpoint", "EndpointSource",
     "Scan", "ScanResult", "ScanStatus",
+    "Verification", "VerificationStatus",
 ]
