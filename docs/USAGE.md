@@ -102,6 +102,7 @@ A **Run** executes the full recon pipeline against a target: subdomain enumerati
    - **dnsx** — DNS resolution and validation.
    - **httpx** — HTTP probing (status codes, titles, technologies).
    - **nmap** — port and service scanning (active; use only if permitted by the program).
+   - **nuclei** — vulnerability scanner (requires `SCAN_ENABLED=true`, see Step 3a below).
 5. Click **Start Run**.
 6. Watch the live progress log as each tool completes.
 
@@ -126,7 +127,123 @@ The run transitions through: `queued → running → succeeded` (or `failed`).
 
 ---
 
-## Step 4 — Review Assets and Endpoints
+## Step 3a — Run a Nuclei Scan (opt-in)
+
+After recon has populated assets and endpoints, you can scan them for known vulnerabilities using Nuclei.
+
+### Prerequisites
+
+1. Enable scanning in your `.env`:
+   ```env
+   SCAN_ENABLED=true
+   ```
+2. Ensure Docker and Docker Compose are installed (Nuclei runs in a container).
+3. Clone pinned Nuclei templates and create the lock file:
+   ```bash
+   git clone https://github.com/projectdiscovery/nuclei-templates \
+     infra/scanners/nuclei-templates
+   cd infra/scanners/nuclei-templates
+   SHA=$(git rev-parse HEAD)
+   echo "url=https://github.com/projectdiscovery/nuclei-templates" > ../templates.lock
+   echo "commit=$SHA" >> ../templates.lock
+   ```
+
+### Option A — Nuclei as a pipeline module
+
+Add `nuclei` to the tools list when creating the run:
+
+```bash
+curl -X POST http://127.0.0.1:8000/runs \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "tools": ["subfinder", "httpx", "nuclei"]}'
+```
+
+The pipeline will:
+1. Discover subdomains and HTTP endpoints.
+2. Export in-scope URLs only (scope is enforced in code).
+3. Run Nuclei with safe conservative defaults (rate-limited, allow-listed templates).
+4. Store all results as `ScanResult` records linked to the run.
+
+### Option B — On-demand scan via the `/scans` API
+
+```bash
+# Create and queue a standalone scan for a target
+curl -X POST http://127.0.0.1:8000/scans \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1}'
+
+# Optionally link to an existing run
+curl -X POST http://127.0.0.1:8000/scans \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "run_id": 5}'
+
+# Check scan status
+curl http://127.0.0.1:8000/scans/1
+
+# List all scans for a target
+curl "http://127.0.0.1:8000/scans?target_id=1"
+```
+
+### Reviewing scan results
+
+```bash
+# List results for a scan (grouped by severity)
+curl "http://127.0.0.1:8000/scan-results?scan_id=1"
+curl "http://127.0.0.1:8000/scan-results?scan_id=1&severity=high"
+
+# Promote a confirmed result to a tracked finding
+curl -X POST http://127.0.0.1:8000/scan-results/42/promote
+```
+
+In the UI, navigate to **Scans** in the sidebar to see scan status, logs, and results grouped by severity.
+
+> **Safety note:** Only the following template categories run by default: `cve`, `misconfig`, `exposure`, `takeover`. Intrusive categories (`dos`, `fuzz`, `intrusive`, `bruteforce`) are **never** run unless you explicitly modify the code.
+
+See [docs/scanning.md](scanning.md) for full details on safe defaults, template pinning, and scope enforcement.
+
+---
+
+## Step 3b — Verify Findings (reduce false positives)
+
+After a scan, dragonflAI can automatically verify suspected findings using an independent second technique.
+
+### Queue a verification
+
+```bash
+# Verify a specific finding via HTTP replay
+curl -X POST http://127.0.0.1:8000/verifications \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "finding_id": 42, "method": "http_replay"}'
+
+# DNS re-check (passive)
+curl -X POST http://127.0.0.1:8000/verifications \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "finding_id": 42, "method": "dns_recheck"}'
+```
+
+### Check verification status
+
+```bash
+curl "http://127.0.0.1:8000/verifications?target_id=1&status=confirmed"
+curl http://127.0.0.1:8000/verifications/7
+```
+
+**Verdicts:**
+
+| Status | Meaning |
+|--------|---------|
+| `confirmed` | Independent technique confirmed the finding |
+| `unconfirmed` | Target responded but finding not confirmed |
+| `inconclusive` | Network error or ambiguous result |
+| `failed` | Scope violation or infrastructure error |
+
+### Auto-verification
+
+Set `AUTO_VERIFY=true` in `.env` to automatically queue `http_replay` verification for every high or critical Nuclei result.
+
+See [docs/verification.md](verification.md) for full details on verification methods and evidence artifacts.
+
+---
 
 After a run completes, dragonflAI stores all discovered assets and HTTP endpoints.
 
@@ -351,7 +468,7 @@ New assets found in a diff are often the most valuable targets — they are like
 
 ## End-to-End Example
 
-The following example walks through a complete bug bounty workflow:
+The following example walks through a complete bug bounty workflow: recon → scan → verify → report.
 
 ```bash
 # 1. Start dragonflAI
@@ -367,15 +484,39 @@ curl -X POST http://127.0.0.1:8000/targets \
   -H "Content-Type: application/json" \
   -d '{"program_id": 1, "name": "Main app", "root_domain": "acmecorp.com", "scope_rules": ["*.acmecorp.com"]}'
 
-# 4. Start a recon run
+# 4. Start a recon run (includes Nuclei scan — requires SCAN_ENABLED=true in .env)
+curl -X POST http://127.0.0.1:8000/runs \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "tools": ["subfinder", "dnsx", "httpx", "nuclei"]}'
+
+# 4a. Or run recon only and then scan separately
 curl -X POST http://127.0.0.1:8000/runs \
   -H "Content-Type: application/json" \
   -d '{"target_id": 1, "tools": ["subfinder", "dnsx", "httpx"]}'
 
-# 5. Wait for the run to complete, then review assets and endpoints in the UI
+# (wait for run to complete, then start on-demand scan)
+curl -X POST http://127.0.0.1:8000/scans \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "run_id": 1}'
+
+# 5. Wait for the scan to complete, then review results
+curl "http://127.0.0.1:8000/scan-results?scan_id=1&severity=high"
+
+# 6. Verify a high-severity result before promoting it
+curl -X POST http://127.0.0.1:8000/verifications \
+  -H "Content-Type: application/json" \
+  -d '{"target_id": 1, "finding_id": null, "method": "http_replay"}'
+
+# Wait for verification, then check verdict
+curl "http://127.0.0.1:8000/verifications?target_id=1&status=confirmed"
+
+# 7. Promote a confirmed scan result to a tracked finding
+curl -X POST http://127.0.0.1:8000/scan-results/42/promote
+
+# 8. Review assets and endpoints in the UI
 open http://127.0.0.1:8501
 
-# 6. After confirming a finding, create it
+# 9. After confirming a finding, create it (or use the promoted finding from step 7)
 curl -X POST http://127.0.0.1:8000/findings \
   -H "Content-Type: application/json" \
   -d '{
@@ -389,12 +530,12 @@ curl -X POST http://127.0.0.1:8000/findings \
     "remediation": "Validate the redirect parameter against an allowlist of trusted domains."
   }'
 
-# 7. Generate a platform report
+# 10. Generate a platform report
 curl -X POST http://127.0.0.1:8000/findings/1/generate-report \
   -H "Content-Type: application/json" \
   -d '{"template": "platform"}'
 
-# 8. Export and submit
+# 11. Export and submit
 curl "http://127.0.0.1:8000/findings/1/export?format=markdown" -o submission.md
 ```
 
@@ -414,5 +555,7 @@ curl "http://127.0.0.1:8000/findings/1/export?format=markdown" -o submission.md
 ## See Also
 
 - [Setup Guide](setup.md) — installation and configuration.
+- [Scanning Guide](scanning.md) — how scans work, safe defaults, and template pinning.
+- [Verification Guide](verification.md) — automated proof stage and evidence artifacts.
 - [Safety & Ethics Policy](safety.md) — scope enforcement and responsible disclosure.
 - [Roadmap](roadmap.md) — planned features including LLM-enhanced reporting.

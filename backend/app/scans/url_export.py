@@ -2,7 +2,7 @@
 
 Entry point
 -----------
-``export_scan_urls(db, target_id, scan_id, artifacts_dir)``
+``export_scan_urls(db, target_id, scan_id, artifacts_dir[, scope_validator])``
 
 The function:
 1. Collects all ``Endpoint`` URLs stored for *target_id*.
@@ -12,19 +12,35 @@ The function:
    ``asset.ports_json`` when those ports are likely to serve HTTP/HTTPS
    traffic.
 4. Normalizes, deduplicates, and sorts the full URL set.
-5. Writes the result to ``<artifacts_dir>/urls.txt`` and returns the path.
+5. When a *scope_validator* is supplied, filters the URL set to in-scope
+   entries only.  If the validator has no include rules, a ``RuntimeError``
+   is raised (default-deny).
+6. Writes the result to ``<artifacts_dir>/urls.txt`` and returns the path.
+
+Scope safety
+------------
+``scan_preflight_scope_filter(urls, scope_validator)`` is also exported as a
+standalone helper so callers can scope-check a URL list before it reaches any
+scanner without going through the full export pipeline.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
 from backend.app.models.asset import Asset, AssetType
 from backend.app.models.endpoint import Endpoint
 from backend.app.scans.url_normalizer import normalize_url
+
+if TYPE_CHECKING:
+    from backend.app.scope.validator import ScopeValidator
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +123,71 @@ def _generate_port_urls(asset: Asset) -> list[str]:
     return urls
 
 
-def export_scan_urls(db: Session, target_id: int, scan_id: int, artifacts_dir: str) -> Path:
+def scan_preflight_scope_filter(
+    urls: list[str],
+    scope_validator: "ScopeValidator",
+) -> tuple[list[str], int]:
+    """Filter *urls* to only those whose host is within the defined scope.
+
+    This is the code-level guarantee that out-of-scope URLs never reach the
+    nuclei command list, regardless of how ``urls.txt`` was populated.
+
+    Parameters
+    ----------
+    urls:
+        Candidate URL strings to evaluate.
+    scope_validator:
+        A configured :class:`~backend.app.scope.validator.ScopeValidator`.
+        Its ``is_in_scope(host)`` method is called for each URL's hostname.
+
+    Returns
+    -------
+    tuple[list[str], int]
+        ``(in_scope_urls, dropped_count)`` — the filtered list and the number
+        of URLs that were dropped.
+
+    Raises
+    ------
+    RuntimeError
+        If the validator has **no** include rules (default-deny: no scope
+        configured means scanning is refused).
+    """
+    # Default-deny: no include rules → scan refuses to run
+    if not scope_validator.has_include_rules():
+        raise RuntimeError(
+            "scan_preflight_scope_filter: no scope include rules are defined. "
+            "Configure in-scope rules for the target before scanning."
+        )
+
+    in_scope: list[str] = []
+    dropped = 0
+    for url in urls:
+        try:
+            host = urlparse(url).hostname or ""
+        except Exception:
+            host = ""
+        if host and scope_validator.is_in_scope(host):
+            in_scope.append(url)
+        else:
+            dropped += 1
+            logger.debug("scan_preflight_scope_filter: dropping out-of-scope URL %r", url)
+
+    if dropped:
+        logger.info(
+            "scan_preflight_scope_filter: dropped %d out-of-scope URLs; %d remain",
+            dropped,
+            len(in_scope),
+        )
+    return in_scope, dropped
+
+
+def export_scan_urls(
+    db: Session,
+    target_id: int,
+    scan_id: int,
+    artifacts_dir: str,
+    scope_validator: "ScopeValidator | None" = None,
+) -> Path:
     """Build a deduplicated ``urls.txt`` for *target_id* and return its path.
 
     Parameters
@@ -120,6 +200,10 @@ def export_scan_urls(db: Session, target_id: int, scan_id: int, artifacts_dir: s
         Scan this export is associated with (used for logging only).
     artifacts_dir:
         Directory in which ``urls.txt`` will be written.  Created if absent.
+    scope_validator:
+        Optional :class:`~backend.app.scope.validator.ScopeValidator`.
+        When supplied, only URLs whose hostname is in-scope are written.
+        A validator with no include rules raises ``RuntimeError`` (default-deny).
 
     Returns
     -------
@@ -191,14 +275,34 @@ def export_scan_urls(db: Session, target_id: int, scan_id: int, artifacts_dir: s
 
     unique_urls.sort()
     logger.info(
-        "scan_id=%d target_id=%d: final unique URL count = %d",
+        "scan_id=%d target_id=%d: unique URL count before scope filter = %d",
         scan_id,
         target_id,
         len(unique_urls),
     )
 
     # ------------------------------------------------------------------ #
-    # 4. Write to disk
+    # 4. Apply scope filter (code-level safety guarantee)
+    # ------------------------------------------------------------------ #
+    if scope_validator is not None:
+        unique_urls, dropped = scan_preflight_scope_filter(unique_urls, scope_validator)
+        logger.info(
+            "scan_id=%d target_id=%d: after scope filter: %d URLs (%d dropped)",
+            scan_id,
+            target_id,
+            len(unique_urls),
+            dropped,
+        )
+    else:
+        logger.info(
+            "scan_id=%d target_id=%d: final unique URL count = %d (no scope filter)",
+            scan_id,
+            target_id,
+            len(unique_urls),
+        )
+
+    # ------------------------------------------------------------------ #
+    # 5. Write to disk
     # ------------------------------------------------------------------ #
     os.makedirs(artifacts_dir, exist_ok=True)
     output_path = Path(artifacts_dir) / "urls.txt"

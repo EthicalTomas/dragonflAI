@@ -28,6 +28,8 @@ _MOCKED_MODULES = [
     "sqlalchemy.orm",
     "backend",
     "backend.app",
+    "backend.app.core",
+    "backend.app.core.config",
     "backend.app.detection",
     "backend.app.detection.orchestrator",
     "backend.app.models",
