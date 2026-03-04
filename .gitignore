@@ -31,3 +31,6 @@ Thumbs.db
 
 # Alembic
 migrations/versions/__pycache__/
+
+# Nuclei templates (fetched by scripts/fetch_nuclei_templates.sh)
+infra/scanners/nuclei-templates/
