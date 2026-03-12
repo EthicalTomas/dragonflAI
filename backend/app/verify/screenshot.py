@@ -89,6 +89,13 @@ class ScreenshotVerifier(BaseVerifier):
         safe_name = "".join(c if c.isalnum() else "_" for c in target)[:80]
         screenshot_path = str(Path(self.output_dir) / f"{safe_name}.png")
 
+        logger.warning(
+            "ScreenshotVerifier: capturing screenshot for %r (active, opt-in method). "
+            "Disable by unsetting %s.",
+            target,
+            _ENABLED_ENV_VAR,
+        )
+
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(headless=True)
