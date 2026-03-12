@@ -12,7 +12,7 @@ dragonflAI is a local-first, lightweight platform that automates recon, organize
 ## Features
 
 - ✅ Program & target management with scope enforcement.
-- ✅ Recon pipeline: subfinder, httpx, dnsx, nmap (pluggable architecture).
+- ✅ Recon pipeline: subfinder, httpx, dnsx, nmap, **katana**, **gau** (pluggable architecture).
 - ✅ Asset & endpoint storage with upsert and deduplication.
 - ✅ Burp Suite & OWASP ZAP import.
 - ✅ Heuristic vulnerability detection (interesting params, paths, headers).
@@ -21,8 +21,43 @@ dragonflAI is a local-first, lightweight platform that automates recon, organize
 - ✅ CVSS 3.1 scoring.
 - ✅ Run-to-run diffing (new/removed/changed assets and endpoints).
 - ✅ Background job execution with live progress.
-- ✅ LLM adapter interface (upgrade-ready, no LLM required).
+- ✅ LLM adapter interface — **Ollama, OpenAI, and Anthropic providers included**.
 - ✅ Streamlit web UI + FastAPI backend.
+
+## LLM / AI Features
+
+dragonflAI ships with three LLM providers. Set `LLM_PROVIDER` in your `.env` file:
+
+| Value | Provider | Cost | Privacy |
+|-------|----------|------|---------|
+| `null` (default) | Disabled | Free | n/a |
+| `ollama` | Local Ollama | Free | 🔒 100% local |
+| `openai` | OpenAI API | Paid | ☁️ Cloud |
+| `anthropic` | Anthropic API | Paid | ☁️ Cloud |
+
+**Local setup (recommended):**
+```bash
+# Install Ollama: https://ollama.com
+ollama pull llama3
+# In .env:
+LLM_PROVIDER=ollama
+```
+
+**OpenAI:**
+```bash
+# In .env:
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+**Anthropic:**
+```bash
+# In .env:
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+When an LLM provider is active, report generation automatically enhances descriptions, impact statements, and remediation advice.
 
 ## Architecture
 

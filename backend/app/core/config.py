@@ -41,5 +41,26 @@ class Settings(BaseSettings):
     # Maximum HTTP response body bytes captured for evidence storage.
     max_response_size_bytes: int = 1_048_576
 
+    # --- LLM config ---------------------------------------------------------
+    # Which LLM provider to use for report enhancement and AI features.
+    # Valid values: null | ollama | openai | anthropic
+    # Defaults to "null" (LLM disabled).  Switch to "ollama" for a free local
+    # option, or "openai" / "anthropic" for cloud-based inference.
+    llm_provider: str = "null"
+
+    # Ollama settings (used when llm_provider="ollama")
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    ollama_embed_model: str = "nomic-embed-text"
+
+    # OpenAI settings (used when llm_provider="openai")
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_embed_model: str = "text-embedding-3-small"
+
+    # Anthropic settings (used when llm_provider="anthropic")
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-3-5-haiku-latest"
+
 
 settings = Settings()

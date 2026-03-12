@@ -37,22 +37,25 @@
 - Run-to-run diffing (new/removed/changed assets and endpoints).
 - Diff UI page with visual indicators.
 
-## Milestone 5: LLM Integration 📋
+## Milestone 5: LLM Integration ✅
 
 - Ollama provider (local, free).
 - OpenAI / Anthropic providers (paid, optional).
 - LLM-enhanced report generation (improve clarity, suggest remediation).
-- RAG: index artifacts + notes into pgvector, "ask your recon data" chat.
-- Chat UI page.
+- LLM provider factory (`build_llm_provider()`) reads from `.env`.
+- RAG: index artifacts + notes into pgvector, "ask your recon data" chat. 📋
+- Chat UI page. 📋
 
-## Milestone 6: Advanced Features 📋
+## Milestone 6: Advanced Features 🔄
 
-- Scheduled/recurring recon runs.
-- Notification system (new assets, new high-confidence signals).
-- Additional tools: katana, gau, waybackurls, ffuf, nuclei.
-- Mobile target support (APK/IPA endpoint extraction).
-- Multi-user support (if needed).
-- Dashboard with historical trends.
+- Katana web crawler tool (endpoint discovery, JS route extraction). ✅
+- GAU / Wayback Machine historical URL discovery. ✅
+- Scheduled/recurring recon runs. 📋
+- Notification system (new assets, new high-confidence signals). 📋
+- Additional tools: ffuf, nuclei template management. 📋
+- Mobile target support (APK/IPA endpoint extraction). 📋
+- Multi-user support (if needed). 📋
+- Dashboard with historical trends. 📋
 
 ## Status Legend
 
