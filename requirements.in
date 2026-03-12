@@ -9,3 +9,5 @@ rq
 streamlit
 httpx
 python-dotenv
+openai
+anthropic
