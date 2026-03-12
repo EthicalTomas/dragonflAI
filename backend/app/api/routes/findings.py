@@ -21,6 +21,7 @@ from backend.app.schemas.finding import (
     FindingReviewRequest,
     FindingSummary,
     FindingUpdate,
+    _ALLOWED_STATUSES,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,11 @@ def _append_log(finding: Finding, message: str) -> None:
     ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     entry = f"[{ts}] {message}"
     finding.log_text = (finding.log_text or "") + entry + "\n"
+
+
+def _utcnow_naive() -> datetime.datetime:
+    """Return the current UTC datetime as a naive datetime (no tzinfo)."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
 @router.post("", response_model=FindingOut, status_code=201)
@@ -186,7 +192,7 @@ def update_finding(finding_id: int, body: FindingUpdate, db: Session = Depends(g
     if cvss_score is not None:
         update_data["severity"] = cvss_to_severity(cvss_score)
 
-    update_data["updated_at"] = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    update_data["updated_at"] = _utcnow_naive()
 
     for field, value in update_data.items():
         setattr(finding, field, value)
@@ -209,7 +215,7 @@ def mark_reviewed(finding_id: int, body: FindingReviewRequest, db: Session = Dep
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
 
-    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    now = _utcnow_naive()
     finding.reviewed_by_human = True
     finding.reviewed_at = now
     finding.reviewer = body.reviewer
@@ -240,8 +246,6 @@ def update_status(
 
     Transitioning to 'ready_to_submit' or 'submitted' requires reviewed_by_human=True.
     """
-    from backend.app.schemas.finding import _ALLOWED_STATUSES  # noqa: PLC0415
-
     if status not in _ALLOWED_STATUSES:
         raise HTTPException(
             status_code=400,
@@ -264,7 +268,7 @@ def update_status(
 
     old_status = finding.status
     finding.status = status
-    finding.updated_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    finding.updated_at = _utcnow_naive()
     _append_log(finding, f"Status changed from '{old_status}' to '{status}'.")
     db.commit()
     db.refresh(finding)
