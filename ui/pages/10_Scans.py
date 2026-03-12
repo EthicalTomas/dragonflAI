@@ -10,7 +10,11 @@ def _parse_tags(text: str) -> list[str]:
     return [t.strip() for t in text.split(",") if t.strip()]
 
 st.title("Scans")
-st.caption("⚠️ Scanner results require manual verification before submission as findings.")
+st.error(
+    "🚫 **Scanner results require human review before submission.** "
+    "Promoted findings are created as **drafts** and cannot be exported until a human reviews "
+    "them in the *Findings* page."
+)
 
 # ── Load targets ──────────────────────────────────────────────────────────────
 try:
@@ -128,7 +132,11 @@ with tab_scan:
 # ── Tab 2: Scan Results ───────────────────────────────────────────────────────
 with tab_results:
     st.subheader("Scan Results")
-    st.info("⚠️ These are raw scanner findings. Review carefully before promoting to a verified Finding.")
+    st.error(
+        "🚫 **Raw scanner findings — do not submit without human review.**\n\n"
+        "Review each result carefully. After promoting to a Finding, complete the human "
+        "review in the *Findings* page before exporting or submitting."
+    )
 
     # Filters
     col1, col2, col3 = st.columns(3)

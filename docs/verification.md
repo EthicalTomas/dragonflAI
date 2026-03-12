@@ -2,6 +2,12 @@
 
 The verification subsystem provides an **automated second-technique proof step** for suspected findings. It reduces false positives by independently confirming or denying a signal using a different technique, and it produces reproducible evidence artefacts for bug bounty workflows.
 
+> **Important:** Verification reduces false positives but does **not** replace human review.
+> A `confirmed` verdict means automated evidence was collected — it does **not** mean the
+> finding is ready to submit. Every finding must still be reviewed by a human and marked
+> via the review workflow before it can be exported or submitted. See the
+> [Before Submitting checklist](USAGE.md#before-submitting--human-review-checklist) in USAGE.md.
+
 ---
 
 ## What verification does

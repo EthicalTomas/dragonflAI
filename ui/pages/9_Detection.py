@@ -4,6 +4,12 @@ from ui.api_client import get, post
 
 st.title("Detection")
 
+st.warning(
+    "⚠️ **Detection signals are indicators, not confirmed findings.** "
+    "All auto-generated findings start as **drafts** and require human review before submission. "
+    "See the *Findings* page to complete review."
+)
+
 _CONFIDENCE_EMOJI = {
     "high": "⚠️",
     "medium": "ℹ️",
@@ -188,9 +194,14 @@ with tab3:
 with tab4:
     st.subheader("Auto-Generate Draft Findings")
 
-    st.warning(
-        "⚠️ Auto-generated findings are DRAFTS. You MUST review and verify each one "
-        "before submitting to a bug bounty program."
+    st.error(
+        "🚫 **HUMAN REVIEW REQUIRED** — Auto-generated findings are **DRAFTS** only.\n\n"
+        "Before submitting to any bug bounty program you **must**:\n"
+        "1. Manually reproduce the vulnerability.\n"
+        "2. Verify it is within the program's defined scope.\n"
+        "3. Assess the real-world impact and CVSS score.\n"
+        "4. Complete the human review in the *Findings* page (Finding Detail & Reports tab).\n\n"
+        "Export and submission are **blocked** until review is recorded."
     )
 
     try:

@@ -11,10 +11,18 @@ from sqlalchemy import case
 
 from backend.app.db.session import get_db
 from backend.app.models import Finding, Run, Target
+from backend.app.models.finding import FindingStatus
 from backend.app.reports.cvss import calculate_cvss_score, cvss_to_severity
 from backend.app.reports.generator import ReportGenerator
 from backend.app.llm.null_provider import NullLLMProvider
-from backend.app.schemas.finding import FindingCreate, FindingOut, FindingSummary, FindingUpdate
+from backend.app.schemas.finding import (
+    FindingCreate,
+    FindingOut,
+    FindingReviewRequest,
+    FindingSummary,
+    FindingUpdate,
+    _ALLOWED_STATUSES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +68,25 @@ def _to_out(finding: Finding) -> FindingOut:
         references=json.loads(finding.references_json or "[]"),
         notes=finding.notes,
         report_markdown=finding.report_markdown,
+        reviewed_by_human=bool(finding.reviewed_by_human),
+        reviewed_at=finding.reviewed_at,
+        reviewer=finding.reviewer,
+        review_notes=finding.review_notes,
         created_at=finding.created_at,
         updated_at=finding.updated_at,
     )
+
+
+def _append_log(finding: Finding, message: str) -> None:
+    """Append a timestamped line to finding.log_text."""
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry = f"[{ts}] {message}"
+    finding.log_text = (finding.log_text or "") + entry + "\n"
+
+
+def _utcnow_naive() -> datetime.datetime:
+    """Return the current UTC datetime as a naive datetime (no tzinfo)."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
 @router.post("", response_model=FindingOut, status_code=201)
@@ -103,7 +127,10 @@ def create_finding(body: FindingCreate, db: Session = Depends(get_db)):
         cvss_vector=cvss_vector,
         references_json=json.dumps(body.references),
         notes=body.notes,
+        status=FindingStatus.DRAFT,
+        reviewed_by_human=False,
     )
+    _append_log(finding, f"Finding created with status='{FindingStatus.DRAFT}'.")
     db.add(finding)
     db.commit()
     db.refresh(finding)
@@ -165,14 +192,87 @@ def update_finding(finding_id: int, body: FindingUpdate, db: Session = Depends(g
     if cvss_score is not None:
         update_data["severity"] = cvss_to_severity(cvss_score)
 
-    update_data["updated_at"] = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    update_data["updated_at"] = _utcnow_naive()
 
     for field, value in update_data.items():
         setattr(finding, field, value)
 
+    _append_log(finding, "Finding fields updated.")
     db.commit()
     db.refresh(finding)
     logger.info("Updated finding id=%s", finding.id)
+    return _to_out(finding)
+
+
+@router.post("/{finding_id}/review", response_model=FindingOut)
+def mark_reviewed(finding_id: int, body: FindingReviewRequest, db: Session = Depends(get_db)):
+    """Mark a finding as human-reviewed, enabling export and submission.
+
+    This is an explicit acknowledgment that a human has reviewed the finding and
+    confirmed it complies with program rules before submission.
+    """
+    finding = db.get(Finding, finding_id)
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    now = _utcnow_naive()
+    finding.reviewed_by_human = True
+    finding.reviewed_at = now
+    finding.reviewer = body.reviewer
+    finding.review_notes = body.review_notes
+    if finding.status == FindingStatus.DRAFT:
+        finding.status = FindingStatus.NEEDS_REVIEW
+    finding.updated_at = now
+
+    _append_log(
+        finding,
+        f"Human review recorded by '{body.reviewer}'. "
+        f"Status set to '{finding.status}'."
+        + (f" Notes: {body.review_notes}" if body.review_notes else ""),
+    )
+    db.commit()
+    db.refresh(finding)
+    logger.info("Finding id=%s marked reviewed_by_human=True by '%s'", finding.id, body.reviewer)
+    return _to_out(finding)
+
+
+@router.post("/{finding_id}/status", response_model=FindingOut)
+def update_status(
+    finding_id: int,
+    status: str = Query(..., description="New status for the finding"),
+    db: Session = Depends(get_db),
+):
+    """Transition a finding to a new status.
+
+    Transitioning to 'ready_to_submit' or 'submitted' requires reviewed_by_human=True.
+    """
+    if status not in _ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {', '.join(sorted(_ALLOWED_STATUSES))}",
+        )
+
+    finding = db.get(Finding, finding_id)
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    _REQUIRES_REVIEW = {FindingStatus.READY_TO_SUBMIT, FindingStatus.SUBMITTED}
+    if status in _REQUIRES_REVIEW and not finding.reviewed_by_human:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Finding must be reviewed by a human before transitioning to "
+                f"'{status}'. Call POST /findings/{finding_id}/review first."
+            ),
+        )
+
+    old_status = finding.status
+    finding.status = status
+    finding.updated_at = _utcnow_naive()
+    _append_log(finding, f"Status changed from '{old_status}' to '{status}'.")
+    db.commit()
+    db.refresh(finding)
+    logger.info("Finding id=%s status changed %s -> %s", finding.id, old_status, status)
     return _to_out(finding)
 
 
@@ -215,6 +315,15 @@ def export_report(
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
 
+    if not finding.reviewed_by_human:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Export blocked: this finding has not been reviewed by a human. "
+                f"Call POST /findings/{finding_id}/review first."
+            ),
+        )
+
     if not finding.report_markdown:
         raise HTTPException(status_code=400, detail="Generate a report first.")
 
@@ -249,6 +358,16 @@ def batch_report(body: _BatchReportRequest, db: Session = Depends(get_db)):
     missing = [fid for fid in finding_ids if fid not in found_ids]
     if missing:
         raise HTTPException(status_code=404, detail=f"Findings not found: {missing}")
+
+    unreviewed = [f.id for f in findings if not f.reviewed_by_human]
+    if unreviewed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Batch export blocked: findings {unreviewed} have not been reviewed by a human. "
+                "Review all findings before generating a batch report."
+            ),
+        )
 
     generator = ReportGenerator(NullLLMProvider())
     report_markdown = generator.generate_batch_report(findings, template_name=template)

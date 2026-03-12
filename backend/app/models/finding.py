@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base
@@ -16,11 +16,15 @@ class Severity:
 
 class FindingStatus:
     DRAFT = "draft"
-    READY = "ready"
+    NEEDS_REVIEW = "needs_review"
+    READY_TO_SUBMIT = "ready_to_submit"
     SUBMITTED = "submitted"
     ACCEPTED = "accepted"
     DUPLICATE = "duplicate"
     NOT_APPLICABLE = "not_applicable"
+
+    # Legacy alias kept for backwards compatibility
+    READY = "ready_to_submit"
 
 
 class Finding(Base):
@@ -46,6 +50,12 @@ class Finding(Base):
     references_json: Mapped[str] = mapped_column(Text, default="[]")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Human-review fields — must be set via the /review endpoint before export/submit
+    reviewed_by_human: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    reviewed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewer: Mapped[str | None] = mapped_column(String, nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, nullable=False
     )
