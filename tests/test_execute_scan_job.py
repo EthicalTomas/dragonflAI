@@ -20,14 +20,21 @@ def _build_mock(name: str) -> types.ModuleType:
 _MOCKED_MODULES = [
     "backend",
     "backend.app",
+    "backend.app.core",
+    "backend.app.core.config",
     "backend.app.db",
     "backend.app.db.session",
     "backend.app.models",
     "backend.app.models.scan",
+    "backend.app.models.program",
+    "backend.app.models.target",
     "backend.app.scans",
     "backend.app.scans.nuclei_parser",
     "backend.app.scans.nuclei_runner",
     "backend.app.scans.url_export",
+    "backend.app.scope",
+    "backend.app.scope.parser",
+    "backend.app.scope.validator",
 ]
 
 _original_modules: dict = {}
@@ -88,6 +95,12 @@ class TestExecuteScan(unittest.TestCase):
         mod.ScanStatus.RUNNING = "running"
         mod.ScanStatus.SUCCEEDED = "succeeded"
         mod.ScanStatus.FAILED = "failed"
+        # Scanning enabled by default in test helpers
+        mock_settings = MagicMock()
+        mock_settings.scan_enabled = True
+        mod.settings = mock_settings
+        # _build_scope_validator returns a ready mock validator
+        mod._build_scope_validator = MagicMock(return_value=MagicMock())
         # preflight returns a plain dict so json.dumps works
         mod.preflight = MagicMock(return_value={
             "template_commit": "abc123",
@@ -200,6 +213,41 @@ class TestExecuteScan(unittest.TestCase):
         mod.execute_scan(1)
 
         self.assertIn("7", mock_scan.log_text)
+
+    def test_scan_disabled_raises_before_running(self) -> None:
+        """execute_scan raises when SCAN_ENABLED=false so RQ marks the job failed."""
+        mod, mock_scan, mock_db = self._make_mod(1)
+        mod.settings.scan_enabled = False
+
+        with self.assertRaises(RuntimeError):
+            mod.execute_scan(1)
+
+        # Scan must be marked failed
+        self.assertEqual(mock_scan.status, "failed")
+
+    def test_scope_validator_passed_to_export(self) -> None:
+        """execute_scan passes a ScopeValidator to export_scan_urls (scope enforcement)."""
+        mod, mock_scan, mock_db = self._make_mod(1)
+        mock_validator = MagicMock()
+        mod._build_scope_validator = MagicMock(return_value=mock_validator)
+
+        mod.execute_scan(1)
+
+        # _build_scope_validator must have been called with the correct target_id
+        mod._build_scope_validator.assert_called_once_with(mock_db, mock_scan.target_id)
+        # export_scan_urls must have received the validator as a keyword argument
+        call_kwargs = mod.export_scan_urls.call_args
+        self.assertIs(call_kwargs.kwargs.get("scope_validator"), mock_validator)
+
+    def test_scope_violation_marks_scan_failed(self) -> None:
+        """A RuntimeError from export_scan_urls (scope violation) marks the scan failed."""
+        mod, mock_scan, mock_db = self._make_mod(1)
+        mod.export_scan_urls = MagicMock(side_effect=RuntimeError("no scope rules"))
+
+        with self.assertRaises(RuntimeError):
+            mod.execute_scan(1)
+
+        self.assertEqual(mock_scan.status, "failed")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db))
         target_id=body.target_id,
         run_id=body.run_id,
         finding_id=body.finding_id,
+        scan_result_id=body.scan_result_id,
         status=VerificationStatus.QUEUED,
         method=body.method,
         log_text="",
@@ -74,6 +75,7 @@ def list_verifications(
     target_id: int | None = None,
     run_id: int | None = None,
     finding_id: int | None = None,
+    scan_result_id: int | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
 ):
@@ -85,6 +87,8 @@ def list_verifications(
         query = query.filter(Verification.run_id == run_id)
     if finding_id is not None:
         query = query.filter(Verification.finding_id == finding_id)
+    if scan_result_id is not None:
+        query = query.filter(Verification.scan_result_id == scan_result_id)
     if status is not None:
         query = query.filter(Verification.status == status)
     return query.order_by(Verification.id.desc()).all()

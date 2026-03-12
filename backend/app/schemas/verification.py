@@ -10,6 +10,7 @@ class VerificationCreate(BaseModel):
     target_id: int
     run_id: int | None = None
     finding_id: int | None = None
+    scan_result_id: int | None = None
     method: str = "http_replay"
 
     @field_validator("method")
@@ -29,6 +30,7 @@ class VerificationOut(BaseModel):
     target_id: int
     run_id: int | None
     finding_id: int | None
+    scan_result_id: int | None
     status: str
     method: str
     evidence_json: str | None

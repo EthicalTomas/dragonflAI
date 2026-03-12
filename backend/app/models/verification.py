@@ -24,6 +24,9 @@ class Verification(Base):
     finding_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("findings.id"), index=True, nullable=True
     )
+    scan_result_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("scan_results.id"), index=True, nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(32), default=VerificationStatus.QUEUED, index=True, nullable=False
     )

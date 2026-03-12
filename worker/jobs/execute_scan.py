@@ -4,15 +4,37 @@ import logging
 import os
 from pathlib import Path
 
+from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.scan import Scan, ScanStatus
 from backend.app.scans.nuclei_parser import parse_nuclei_jsonl
 from backend.app.scans.nuclei_runner import preflight, run_nuclei
 from backend.app.scans.url_export import export_scan_urls
+from backend.app.scope.parser import parse_scope_text
+from backend.app.scope.validator import ScopeValidator
 
 logger = logging.getLogger(__name__)
 
 _ARTIFACTS_BASE = os.environ.get("SCAN_ARTIFACTS_DIR", "/tmp/dragonflai_scans")
+
+
+def _build_scope_validator(db, target_id: int) -> ScopeValidator:
+    """Load the target's program scope rules and return a configured ScopeValidator.
+
+    This is the code-level guarantee that out-of-scope URLs never reach nuclei,
+    even when scans are triggered via the API rather than the recon pipeline.
+    """
+    from backend.app.models.program import Program  # noqa: PLC0415
+    from backend.app.models.target import Target  # noqa: PLC0415
+
+    target = db.get(Target, target_id)
+    if target is None:
+        raise ValueError(f"Target {target_id} not found")
+    scope_text = ""
+    if target.program_id is not None:
+        program = db.get(Program, target.program_id)
+        scope_text = (program.scope_text or "") if program else ""
+    return ScopeValidator(parse_scope_text(scope_text))
 
 
 def execute_scan(scan_id: int) -> None:
@@ -22,6 +44,13 @@ def execute_scan(scan_id: int) -> None:
         scan = db.get(Scan, scan_id)
         if scan is None:
             raise ValueError(f"Scan {scan_id} not found")
+
+        # Honour the master kill-switch even for jobs already enqueued.
+        if not settings.scan_enabled:
+            raise RuntimeError(
+                "execute_scan: scanning is disabled (SCAN_ENABLED=false). "
+                "Set SCAN_ENABLED=true to allow nuclei scans."
+            )
 
         scan.status = ScanStatus.RUNNING
         scan.updated_at = datetime.datetime.now(datetime.UTC)
@@ -38,10 +67,17 @@ def execute_scan(scan_id: int) -> None:
         db.commit()
         config_meta = preflight()
 
-        # 2. Export URLs
+        # 2. Build scope validator and export URLs (default-deny enforced in code)
         scan.log_text = (scan.log_text or "") + "[execute_scan] exporting URLs\n"
         db.commit()
-        export_scan_urls(db, target_id=scan.target_id, scan_id=scan_id, artifacts_dir=artifacts_dir)
+        scope_validator = _build_scope_validator(db, scan.target_id)
+        export_scan_urls(
+            db,
+            target_id=scan.target_id,
+            scan_id=scan_id,
+            artifacts_dir=artifacts_dir,
+            scope_validator=scope_validator,
+        )
 
         # 3. Persist config_json capturing the exact command config and template commit SHA
         config_data = {
