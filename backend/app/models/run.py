@@ -24,7 +24,7 @@ class Run(Base):
     config_json: Mapped[str] = mapped_column(Text, default="{}")
     log_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.utcnow(), nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )
     started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

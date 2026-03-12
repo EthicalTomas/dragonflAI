@@ -6,9 +6,8 @@ backend package hierarchy (which requires sqlalchemy and other dependencies).
 
 import importlib.util
 import sys
-import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 def _load_preflight():

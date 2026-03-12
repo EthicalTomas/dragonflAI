@@ -12,6 +12,8 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
+anthropic==0.84.0
+    # via -r requirements.in
 anyio==4.12.1
     # via
     #   httpx
@@ -83,6 +85,8 @@ numpy==2.4.2
     #   pandas
     #   pydeck
     #   streamlit
+openai==2.26.0
+    # via -r requirements.in
 packaging==26.0
     # via
     #   altair

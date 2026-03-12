@@ -1,6 +1,6 @@
 import os
 
-from app.tools.base import BaseTool
+from backend.app.tools.base import BaseTool
 
 # nmap can be slow, especially for large networks or script scans.
 # Note: some scan types (e.g. SYN scan -sS) require root/sudo privileges.

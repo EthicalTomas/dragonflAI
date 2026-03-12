@@ -10,7 +10,7 @@ Verifies that execute_verification:
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 def _build_mock(name: str) -> types.ModuleType:

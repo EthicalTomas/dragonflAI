@@ -11,7 +11,7 @@ Verifies that:
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock, patch as mock_patch
+from unittest.mock import MagicMock
 
 
 def _build_mock(name: str) -> types.ModuleType:
@@ -87,7 +87,7 @@ def _load_models():
     import importlib.util
 
     sys.modules.pop("backend.app.models.finding", None)
-    spec = importlib.util.spec_from_file_location(
+    importlib.util.spec_from_file_location(
         "backend.app.models.finding",
         "backend/app/models/finding.py",
     )

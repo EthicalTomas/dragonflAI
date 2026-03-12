@@ -99,7 +99,7 @@ class ReportGenerator:
             if severity_key in counts:
                 counts[severity_key] += 1
 
-        generated_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        generated_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         individual_reports = []
         for finding in findings:

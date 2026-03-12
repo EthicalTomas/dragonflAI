@@ -1,7 +1,7 @@
 import ipaddress
 import logging
 
-from app.scope.parser import ScopeRule
+from backend.app.scope.parser import ScopeRule
 
 logger = logging.getLogger(__name__)
 

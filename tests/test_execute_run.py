@@ -6,7 +6,7 @@ Verifies that execute_run re-raises exceptions so RQ marks jobs as failed.
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 def _build_mock(name: str) -> types.ModuleType:

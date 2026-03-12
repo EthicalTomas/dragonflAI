@@ -72,7 +72,7 @@ class EndpointService:
 
         if existing is not None:
             # Update last_seen_at and is_new
-            existing.last_seen_at = datetime.datetime.utcnow()
+            existing.last_seen_at = datetime.datetime.now(datetime.timezone.utc)
             existing.is_new = False
 
             # Merge params

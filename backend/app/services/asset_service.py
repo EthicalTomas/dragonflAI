@@ -25,7 +25,7 @@ class AssetService:
             .first()
         )
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
 
         if existing is not None:
             existing.last_seen_at = now

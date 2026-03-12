@@ -12,9 +12,9 @@ def append_log(db: Session, run: Run, line: str) -> None:
 def set_status(db: Session, run: Run, status: str) -> None:
     run.status = status
     if status == RunStatus.RUNNING:
-        run.started_at = datetime.datetime.utcnow()
+        run.started_at = datetime.datetime.now(datetime.timezone.utc)
     elif status in (RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED):
-        run.finished_at = datetime.datetime.utcnow()
+        run.finished_at = datetime.datetime.now(datetime.timezone.utc)
 
 
 def set_progress(db: Session, run: Run, progress: int) -> None:
