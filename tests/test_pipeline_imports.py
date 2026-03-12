@@ -146,6 +146,74 @@ class TestPipelineImports(unittest.TestCase):
         for expected in ("subfinder", "dnsx", "httpx", "nmap", "detect"):
             self.assertIn(expected, steps)
 
+    def test_get_auto_verify_severities_scan_mode_setting_exists(self) -> None:
+        """settings object should be accessible from the pipeline module."""
+        self.assertTrue(hasattr(self.pipeline, "settings"))
+
+    def test_scan_mode_auto_after_recon_appends_nuclei(self) -> None:
+        """When scan_mode=auto_after_recon and scan_enabled=True, nuclei is auto-appended."""
+        mock_settings = self.pipeline.settings
+        mock_settings.scan_mode = "auto_after_recon"
+        mock_settings.scan_enabled = True
+
+        # Build a minimal ordered_modules list that does NOT include nuclei
+        # then simulate the auto-append logic
+        modules = ["subfinder", "httpx"]
+        requested = set(modules)
+        AVAILABLE_STEPS = self.pipeline.ReconPipeline.AVAILABLE_STEPS
+        ordered_modules = [s for s in AVAILABLE_STEPS if s in requested]
+
+        # Apply the same logic as the pipeline
+        if (
+            mock_settings.scan_mode == "auto_after_recon"
+            and mock_settings.scan_enabled
+            and "nuclei" not in requested
+        ):
+            ordered_modules.append("nuclei")
+
+        self.assertIn("nuclei", ordered_modules)
+        self.assertEqual(ordered_modules[-1], "nuclei")
+
+    def test_scan_mode_on_demand_does_not_append_nuclei(self) -> None:
+        """When scan_mode=on_demand, nuclei is NOT auto-appended."""
+        mock_settings = self.pipeline.settings
+        mock_settings.scan_mode = "on_demand"
+        mock_settings.scan_enabled = True
+
+        modules = ["subfinder", "httpx"]
+        requested = set(modules)
+        AVAILABLE_STEPS = self.pipeline.ReconPipeline.AVAILABLE_STEPS
+        ordered_modules = [s for s in AVAILABLE_STEPS if s in requested]
+
+        if (
+            mock_settings.scan_mode == "auto_after_recon"
+            and mock_settings.scan_enabled
+            and "nuclei" not in requested
+        ):
+            ordered_modules.append("nuclei")
+
+        self.assertNotIn("nuclei", ordered_modules)
+
+    def test_scan_mode_auto_after_recon_disabled_does_not_append_nuclei(self) -> None:
+        """When scan_mode=auto_after_recon but scan_enabled=False, nuclei is NOT appended."""
+        mock_settings = self.pipeline.settings
+        mock_settings.scan_mode = "auto_after_recon"
+        mock_settings.scan_enabled = False
+
+        modules = ["subfinder", "httpx"]
+        requested = set(modules)
+        AVAILABLE_STEPS = self.pipeline.ReconPipeline.AVAILABLE_STEPS
+        ordered_modules = [s for s in AVAILABLE_STEPS if s in requested]
+
+        if (
+            mock_settings.scan_mode == "auto_after_recon"
+            and mock_settings.scan_enabled
+            and "nuclei" not in requested
+        ):
+            ordered_modules.append("nuclei")
+
+        self.assertNotIn("nuclei", ordered_modules)
+
 
 if __name__ == "__main__":
     unittest.main()

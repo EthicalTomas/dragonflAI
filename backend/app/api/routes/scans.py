@@ -16,6 +16,11 @@ router = APIRouter()
 
 @router.post("", response_model=ScanOut, status_code=201)
 def create_scan(body: ScanCreate, db: Session = Depends(get_db)):
+    if not settings.scan_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Scanning is disabled (SCAN_ENABLED=false). Set SCAN_ENABLED=true to enable.",
+        )
     if not db.get(Target, body.target_id):
         raise HTTPException(status_code=404, detail="Target not found")
     scan = Scan(

@@ -142,6 +142,7 @@ def _queue_auto_verifications(
             verification = Verification(
                 target_id=target_id,
                 run_id=run_id,
+                scan_result_id=result.id,
                 status=VerificationStatus.QUEUED,
                 method="http_replay",
                 log_text="[auto_verify] queued from pipeline nuclei step\n",
@@ -269,6 +270,18 @@ class ReconPipeline:
             logger.warning("ReconPipeline: unknown module %r, skipping", m)
         requested: set[str] = set(modules) - set(unknown)
         ordered_modules = [s for s in self.AVAILABLE_STEPS if s in requested]
+
+        # auto_after_recon: automatically append the nuclei step if not already
+        # requested, scanning is enabled, and the mode calls for it.
+        if (
+            settings.scan_mode == "auto_after_recon"
+            and settings.scan_enabled
+            and "nuclei" not in requested
+        ):
+            ordered_modules.append("nuclei")
+            logger.info(
+                "ReconPipeline: scan_mode=auto_after_recon – nuclei step auto-appended"
+            )
 
         # Preflight: verify required binaries are available before starting
         check_binaries(ordered_modules)
