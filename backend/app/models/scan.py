@@ -25,7 +25,7 @@ class Scan(Base):
     progress: Mapped[int | None] = mapped_column(Integer, nullable=True)
     log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.utcnow(), nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -46,5 +46,5 @@ class ScanResult(Base):
     evidence_json: Mapped[str] = mapped_column(Text, default="{}")
     raw_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.utcnow(), nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )

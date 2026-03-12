@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from app.tools.base import BaseTool
+from backend.app.tools.base import BaseTool
 
 _DEFAULT_TIMEOUT = 600
 

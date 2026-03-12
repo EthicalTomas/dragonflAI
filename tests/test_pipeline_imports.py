@@ -5,7 +5,6 @@ These tests verify that the module exposes the expected stdlib imports
 without requiring a live database or external tools.
 """
 
-import importlib
 import sys
 import types
 import unittest

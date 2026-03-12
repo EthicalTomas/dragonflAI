@@ -205,7 +205,7 @@ def update_endpoint(endpoint_id: int, body: _EndpointUpdate, db: Session = Depen
     for field, value in update_data.items():
         setattr(ep, field, value)
 
-    ep.last_seen_at = datetime.datetime.utcnow()
+    ep.last_seen_at = datetime.datetime.now(datetime.timezone.utc)
 
     db.commit()
     db.refresh(ep)

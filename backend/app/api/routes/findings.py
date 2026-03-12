@@ -79,7 +79,7 @@ def _to_out(finding: Finding) -> FindingOut:
 
 def _append_log(finding: Finding, message: str) -> None:
     """Append a timestamped line to finding.log_text."""
-    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     entry = f"[{ts}] {message}"
     finding.log_text = (finding.log_text or "") + entry + "\n"
 

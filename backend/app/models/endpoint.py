@@ -40,10 +40,10 @@ class Endpoint(Base):
     request_headers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_headers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     first_seen_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )
     last_seen_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )
     is_new: Mapped[bool] = mapped_column(Boolean, default=True)
     tags_json: Mapped[str] = mapped_column(Text, default="[]")

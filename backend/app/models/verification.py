@@ -31,6 +31,6 @@ class Verification(Base):
     evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.utcnow(), nullable=False
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
