@@ -3,6 +3,15 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
 _ALLOWED_SEVERITIES = {"critical", "high", "medium", "low", "informational"}
+_ALLOWED_STATUSES = {
+    "draft",
+    "needs_review",
+    "ready_to_submit",
+    "submitted",
+    "accepted",
+    "duplicate",
+    "not_applicable",
+}
 
 
 class FindingCreate(BaseModel):
@@ -131,6 +140,21 @@ class FindingUpdate(BaseModel):
         return v
 
 
+class FindingReviewRequest(BaseModel):
+    """Payload for the human-review endpoint."""
+
+    reviewer: str
+    review_notes: str | None = None
+
+    @field_validator("reviewer")
+    @classmethod
+    def reviewer_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("reviewer must not be empty")
+        return v
+
+
 class FindingOut(BaseModel):
     id: int
     target_id: int
@@ -152,6 +176,10 @@ class FindingOut(BaseModel):
     references: list[str]
     notes: str | None
     report_markdown: str | None
+    reviewed_by_human: bool
+    reviewed_at: datetime | None
+    reviewer: str | None
+    review_notes: str | None
     created_at: datetime
     updated_at: datetime | None
 
@@ -165,6 +193,7 @@ class FindingSummary(BaseModel):
     severity: str
     status: str
     url: str | None
+    reviewed_by_human: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
