@@ -292,7 +292,7 @@ def generate_report(
         raise HTTPException(status_code=404, detail="Finding not found")
 
     generator = ReportGenerator(NullLLMProvider())
-    report_markdown = generator.generate_report(finding, template_name=template)
+    report_markdown = generator.generate_report(finding, template_name=template, db=db)
 
     finding.report_markdown = report_markdown
     db.commit()
