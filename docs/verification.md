@@ -114,12 +114,19 @@ playwright install chromium
 
 By default, verifications must be triggered manually via the API. Set `auto_verify=true` in the application configuration (or `AUTO_VERIFY=true` in environment) to automatically queue verification jobs:
 
-- For high-confidence detection signals after the `detect` pipeline module completes.
-- For Nuclei scan results with severity `medium` or above after `execute_scan` finishes.
+- For Nuclei scan results with severity at or above the configured minimum after `execute_scan` finishes.
+
+The minimum severity threshold is controlled by `AUTO_VERIFY_MIN_SEVERITY` (default: `high`). Only results at that severity level and above are enqueued. Valid values, from lowest to highest, are: `info`, `low`, `medium`, `high`, `critical`.
+
+> **Note:** Detection signals use a confidence score rather than a severity label and are not subject to `AUTO_VERIFY_MIN_SEVERITY`.
 
 ```env
 # .env
 AUTO_VERIFY=true
+# Queue verifications for high and critical results only (default):
+AUTO_VERIFY_MIN_SEVERITY=high
+# Or enqueue medium, high, and critical results:
+# AUTO_VERIFY_MIN_SEVERITY=medium
 ```
 
 ---

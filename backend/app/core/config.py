@@ -12,8 +12,14 @@ class Settings(BaseSettings):
     # Recon steps (subfinder, nmap, …) can be long; default to 1 hour.
     job_timeout_seconds: int = 3600
     # When True, automatically queue verification jobs for high-confidence
-    # detection signals and Nuclei results above medium severity.
+    # detection signals and Nuclei results at or above auto_verify_min_severity.
     auto_verify: bool = False
+    # Minimum severity level for auto-verification of Nuclei scan results.
+    # Results at this severity and above are enqueued automatically when
+    # auto_verify=True.  Valid values (lowest → highest):
+    #   info | low | medium | high | critical
+    # Default is "high" so only high and critical results are auto-verified.
+    auto_verify_min_severity: str = "high"
 
     # --- Scanning config ----------------------------------------------------
     # Master kill-switch: scanning is disabled by default.  Set to True (or
