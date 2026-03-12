@@ -239,7 +239,7 @@ curl http://127.0.0.1:8000/verifications/7
 
 ### Auto-verification
 
-Set `AUTO_VERIFY=true` in `.env` to automatically queue `http_replay` verification for every high or critical Nuclei result.
+Set `AUTO_VERIFY=true` in `.env` to automatically queue `http_replay` verification for every Nuclei result at or above the configured minimum severity (default: `high`; configurable via `AUTO_VERIFY_MIN_SEVERITY`).
 
 See [docs/verification.md](verification.md) for full details on verification methods and evidence artifacts.
 

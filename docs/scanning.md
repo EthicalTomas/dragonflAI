@@ -121,7 +121,7 @@ The pipeline will:
 2. Export in-scope URLs to `artifacts/<target>/<run>/scan/urls.txt`.
 3. Run `nuclei` via Docker Compose with safe defaults.
 4. Parse JSONL output and store results as `ScanResult` records.
-5. If `AUTO_VERIFY=true`, queue `http_replay` verification jobs for high/critical results.
+5. If `AUTO_VERIFY=true`, queue `http_replay` verification jobs for results at or above `AUTO_VERIFY_MIN_SEVERITY` (default: `high`).
 
 ### Via the API (on-demand scan)
 

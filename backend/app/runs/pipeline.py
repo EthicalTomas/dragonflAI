@@ -72,7 +72,26 @@ def _parse_dnsx_output(filepath: str) -> list[dict]:
     return results
 
 
-_AUTO_VERIFY_SEVERITIES = frozenset({"high", "critical"})
+_SEVERITY_ORDER = ("info", "low", "medium", "high", "critical")
+
+
+def _get_auto_verify_severities() -> frozenset[str]:
+    """Return the set of severity labels that qualify for auto-verification.
+
+    Reads ``settings.auto_verify_min_severity`` and returns every severity at
+    that level and above.  Falls back to ``"high"`` and logs a warning when the
+    configured value is not a recognised severity label.
+    """
+    min_sev = settings.auto_verify_min_severity.lower()
+    if min_sev not in _SEVERITY_ORDER:
+        logger.warning(
+            "_get_auto_verify_severities: unknown AUTO_VERIFY_MIN_SEVERITY=%r; "
+            "falling back to 'high'",
+            min_sev,
+        )
+        min_sev = "high"
+    idx = _SEVERITY_ORDER.index(min_sev)
+    return frozenset(_SEVERITY_ORDER[idx:])
 
 
 def _queue_auto_verifications(
@@ -81,10 +100,14 @@ def _queue_auto_verifications(
     target_id: int,
     run_id: "int | None",
 ) -> None:
-    """Queue verification jobs for high/critical scan results when auto_verify is enabled.
+    """Queue verification jobs for scan results at or above the configured severity.
+
+    The qualifying severities are determined by ``settings.auto_verify_min_severity``
+    (default ``"high"``), so by default only ``high`` and ``critical`` results are
+    enqueued.  Change ``AUTO_VERIFY_MIN_SEVERITY`` in the environment to adjust.
 
     Creates :class:`~backend.app.models.verification.Verification` records for
-    each high or critical ``ScanResult`` from *scan_id* and enqueues them via RQ.
+    each qualifying ``ScanResult`` from *scan_id* and enqueues them via RQ.
     Failures are logged but do not propagate so the pipeline step succeeds.
     """
     try:
@@ -94,16 +117,21 @@ def _queue_auto_verifications(
         from rq import Queue  # noqa: PLC0415
         from rq.job import Retry  # noqa: PLC0415
 
+        severities = _get_auto_verify_severities()
         results = (
             db.query(ScanResult)
             .filter(
                 ScanResult.scan_id == scan_id,
-                ScanResult.severity.in_(list(_AUTO_VERIFY_SEVERITIES)),
+                ScanResult.severity.in_(list(severities)),
             )
             .all()
         )
         if not results:
-            logger.info("_queue_auto_verifications: no high/critical results for scan_id=%d", scan_id)
+            logger.info(
+                "_queue_auto_verifications: no results at or above severity=%r for scan_id=%d",
+                settings.auto_verify_min_severity,
+                scan_id,
+            )
             return
 
         redis_conn = Redis.from_url(settings.redis_url)
@@ -562,7 +590,7 @@ class ReconPipeline:
                         )
                         self.db.commit()
 
-                        # Auto-verify high/critical results when configured
+                        # Auto-verify results at or above AUTO_VERIFY_MIN_SEVERITY
                         if settings.auto_verify and result_count > 0:
                             _queue_auto_verifications(
                                 self.db, scan_record.id, target.id, self.run_id
