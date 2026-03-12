@@ -3,20 +3,111 @@ import json
 import logging
 import os
 import re
+from typing import TYPE_CHECKING, Any
 
 from backend.app.llm.base import LLMProvider
 from backend.app.llm.null_provider import NullLLMProvider
 from backend.app.models.finding import Finding
 from backend.app.reports.templates import get_template
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
 logger = logging.getLogger(__name__)
+
+
+def _build_verification_section(finding_id: int, db: "Session") -> str:
+    """Return a Markdown verification-evidence section for the given finding.
+
+    Queries the *verifications* table for the most-recent record linked to
+    *finding_id*.  Returns an empty string when:
+    - no verifications exist for this finding, or
+    - the verifications table is not yet present (migration mismatch).
+
+    This function is intentionally defensive so callers never need to guard
+    against exceptions raised here.
+    """
+    try:
+        from backend.app.models.verification import Verification  # noqa: PLC0415
+
+        verification: Any = (
+            db.query(Verification)
+            .filter(Verification.finding_id == finding_id)
+            .order_by(Verification.id.desc())
+            .first()
+        )
+    except Exception:
+        logger.warning(
+            "Could not query verifications for finding id=%s; skipping section.",
+            finding_id,
+            exc_info=True,
+        )
+        return ""
+
+    if verification is None:
+        return ""
+
+    try:
+        evidence: dict[str, Any] = json.loads(verification.evidence_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        evidence = {}
+
+    ts = verification.updated_at or verification.created_at
+    if isinstance(ts, datetime.datetime):
+        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    else:
+        ts_str = str(ts) if ts is not None else "unknown"
+
+    vuln_router = evidence.get("vuln_router", "")
+    method_str = verification.method
+    if vuln_router:
+        method_str = f"{verification.method} (VulnRouter: {vuln_router})"
+
+    lines = [
+        "## Verification Evidence (Automated)",
+        "",
+        f"Latest verification verdict: **{verification.status}**",
+        f"Method: {method_str}",
+        f"Timestamp: {ts_str}",
+    ]
+
+    key_evidence_items = []
+    for key in ("status_code", "location", "final_url", "canary_matched", "error"):
+        if key not in evidence:
+            continue
+        value = evidence[key]
+        label = key.replace("_", " ").title()
+        if key == "location" and evidence.get("canary_matched"):
+            key_evidence_items.append(f"- {label}: {value}  (canary matched)")
+        elif key == "canary_matched":
+            continue  # already incorporated above
+        else:
+            key_evidence_items.append(f"- {label}: {value}")
+
+    if key_evidence_items:
+        lines.append("")
+        lines.append("Key evidence:")
+        lines.extend(key_evidence_items)
+
+    artifacts_dir = evidence.get("artifacts_dir")
+    if artifacts_dir:
+        lines.append("")
+        lines.append("Artifacts:")
+        lines.append(f"- {artifacts_dir}")
+
+    return "\n".join(lines)
 
 
 class ReportGenerator:
     def __init__(self, llm_provider: LLMProvider | None = None) -> None:
         self._llm = llm_provider if llm_provider is not None else NullLLMProvider()
 
-    def generate_report(self, finding: Finding, template_name: str = "full") -> str:
+    def generate_report(
+        self,
+        finding: Finding,
+        template_name: str = "full",
+        db: "Session | None" = None,
+    ) -> str:
         template = get_template(template_name)
 
         # Deserialize JSON list fields
@@ -70,6 +161,12 @@ class ReportGenerator:
         }
 
         base_report = template.format(**context)
+
+        # Append verification evidence section if a DB session was provided.
+        if db is not None and finding.id is not None:
+            verification_section = _build_verification_section(finding.id, db)
+            if verification_section:
+                base_report = base_report.rstrip("\n") + "\n\n---\n\n" + verification_section
 
         if isinstance(self._llm, NullLLMProvider):
             return base_report
